@@ -1,6 +1,8 @@
-from skimage import data # for inbuilt images
-from skimage import color
-from skimage.color import rgb2gray # for rgb2gray
+# Header Libraries #
+
+from skimage import data, color, feature, io # for inbuilt images
+from skimage.color import *
+from skimage.filters import *
 import numpy as np
 from skimage.morphology import dilation, erosion, disk, square, diamond, footprint_rectangle # for morphological operators and masks
 import matplotlib.pyplot as plt
@@ -70,4 +72,11 @@ plt.show()
 
 
 
-## ## TASK 2: Take the UQ image and perform opening and closing with different masks ##
+## TASK 2: Perform image segmentation on an original face image and a blurred image ##
+
+
+
+
+## TASK 3: From the Segmented Image in TASK 3, peform edge detection. Customize sigma values ##
+
+
