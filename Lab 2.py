@@ -162,7 +162,7 @@ skin_mask = (H < 0.1) | (H > 0.9) & (S > 0.2) & (S < 0.7)
 ## INSERT THRESHOLDED IMAGE INTO EDGE DETECTOR ##
 # Cusstomize sigma value for Gaussian Blurring (if implemented, remove prior blurring)
 
-edge_mask = canny_edge_detection(global_mask, sigma_value = 10.0)
+edge_mask = canny_edge_detection(global_mask, sigma_value = 9.0)
 
 
 # Plotting both results
@@ -177,7 +177,7 @@ axes[1].set_title('Otsu Thresholding (Skin Mask)')
 axes[1].axis('off')
 
 axes[2].imshow(edge_mask, cmap='gray')
-axes[2].set_title('Canny Edge Detection, \n sigma=10.0')
+axes[2].set_title('Canny Edge Detection, \n sigma=9.0')
 axes[2].axis('off')
 
 plt.tight_layout()
