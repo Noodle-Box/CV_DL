@@ -1,8 +1,9 @@
 import os
 import numpy as np
+import math
 import matplotlib.pyplot as plt
-from skimage import io, color, feature, morphology, exposure, restoration
-from skimage.draw import polygon_perimeter, circle_perimeter, polygon, disk as draw_disk
+from skimage import io, color, feature, morphology, exposure, restoration, transform
+from skimage.draw import polygon_perimeter, circle_perimeter, polygon, disk as draw_disk, line as draw_line
 
 # ==========================================
 # 1. Multi-Class Shape Generation (Saved for Phase 2)
@@ -27,11 +28,15 @@ def get_shape_vertices(shape_type, size):
         h_half, w_half = half_size, half_size * 0.7 
         y = np.array([-h_half, h_half, h_half, -h_half])
         x = np.array([-w_half, -w_half, w_half, w_half])
+    elif shape_type == 'Diamond':
+        y = np.array([-half_size, 0, half_size, 0])
+        x = np.array([0, half_size, 0, -half_size])
         
     return y, x
 
 def create_binary_templates(size):
-    shapes = ['Octagon', 'Triangle_Up', 'Triangle_Down', 'Square', 'Rectangle']
+    # ADDED 'Diamond' to the template generation list
+    shapes = ['Octagon', 'Triangle_Up', 'Triangle_Down', 'Square', 'Rectangle', 'Diamond']
     templates = {}
     
     for shape in shapes:
@@ -99,18 +104,64 @@ def detect_and_filter_sign(image_path, params):
                                                    connectivity=2)
     
     # ==========================================
-    # Visualization (The Debug Layout)
+    # 6. Straight Line Vector Extraction (Probabilistic Hough)
+    # ==========================================
+    print("Extracting straight lines from pruned edges...")
+    
+    lines = transform.probabilistic_hough_line(pruned_edges, 
+                                               threshold=params['hough_threshold'], 
+                                               line_length=params['hough_min_line_length'],
+                                               line_gap=params['hough_line_gap'])
+    
+    # Sort the detected lines from longest to shortest
+    def get_line_length(l):
+        p0, p1 = l
+        return math.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2)
+        
+    lines.sort(key=get_line_length, reverse=True)
+    print(f"Found {len(lines)} straight line segments.")
+
+    # ==========================================
+    # 7. Visualization & Drawing
     # ==========================================
     fig, axes = plt.subplots(1, 3, figsize=(25, 6))
     
-    axes[0].imshow(image)
-    axes[0].set_title("1. Original Image")
+    axes[0].imshow(pruned_edges, cmap='gray')
+    axes[0].set_title("1. Masked & Pruned Edges\n(Input for Line Detection)")
     
-    axes[1].imshow(raw_edges, cmap='gray')
-    axes[1].set_title("2. RAW Canny Edges")
+    vector_canvas = np.zeros_like(image)
+    overlay_image = image.copy()
     
-    axes[2].imshow(pruned_edges, cmap='gray')
-    axes[2].set_title("3. Color Masked & Pruned")
+    # Draw the extracted lines
+    # Red = Top 8 longest (targeting 4 edges of diamond + 4 edges of rectangle)
+    # Blue = Remaining shorter lines
+    for i, line_seg in enumerate(lines):
+        p0, p1 = line_seg
+        x0, y0 = p0
+        x1, y1 = p1
+        
+        if i < 8:
+            line_color = [255, 0, 0]  # Red
+            thickness = 3
+        else:
+            line_color = [0, 100, 255] # Blue
+            thickness = 1
+            
+        rr, cc = draw_line(y0, x0, y1, x1)
+        
+        # Thicken lines for the visualizer
+        for dr in range(-thickness//2 + 1, thickness//2 + 1):
+            for dc in range(-thickness//2 + 1, thickness//2 + 1):
+                r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
+                c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
+                vector_canvas[r_thick, c_thick] = line_color
+                overlay_image[r_thick, c_thick] = line_color
+
+    axes[1].imshow(vector_canvas)
+    axes[1].set_title("2. Extracted Straight Lines\n(Red = Top 8 Longest Segments)")
+    
+    axes[2].imshow(overlay_image)
+    axes[2].set_title("3. Lines Overlaid on Original")
     
     for ax in axes:
         ax.axis('off')
@@ -120,7 +171,7 @@ def detect_and_filter_sign(image_path, params):
 
 # ==========================================
 if __name__ == "__main__":
-    target_img_file = "A1_Streetsigns/Sign5.png" # Test with a PNG!
+    target_img_file = "A1_Streetsigns/Sign2.jpg" 
     
     gatekeeper_params = {
             # Edge Detection Control
@@ -140,12 +191,18 @@ if __name__ == "__main__":
             'color_v_min': 0.30,       
             
             # TIGHT YELLOW TUNING
-            'yellow_s_min': 0.40,      
+            'yellow_s_min': 0.43,      
             'yellow_v_min': 0.50,      
 
             # TIGHT WHITE TUNING
             'white_s_max': 0.15,       
             'white_v_min': 0.85,       
+            
+            # --- Vector Extraction (Hough) ---
+            # These are now set very conservatively to avoid hallucinations
+            'hough_threshold': 20,         # Minimum pixels required to register a line
+            'hough_min_line_length': 40,   # Ignore tiny fragments
+            'hough_line_gap': 5,           # Only bridge very small gaps (no jumping across the image!)
         }
     
     if os.path.exists(target_img_file):
