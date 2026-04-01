@@ -313,11 +313,8 @@ if __name__ == "__main__":
             # HSV color gating thresholds for Red, Yellow, and Blue sign isolation
             'color_s_min': 0.40, 'color_v_min': 0.30,
 
+            # HSV specifically for yellow: Very sensitive to saturation and to filter out background leaves
             'yellow_s_min': 0.43, 'yellow_v_min': 0.50,
-
-            # White color gating thresholds
-            'white_s_max': 0.15, 'white_v_min': 0.85,
-
 
             # Hough Transform parameters for line extraction and corner chaining
             'hough_threshold': 15, 'hough_min_line_length': 15, 'hough_line_gap': 10,
