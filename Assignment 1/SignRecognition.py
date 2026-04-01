@@ -65,7 +65,8 @@ def create_binary_templates(size):
 # ==========================================
 # 2. Main Edge Extraction Execution
 # ==========================================
-def detect_and_filter_sign(image_path, params):
+# NEW: Added output_dir parameter
+def detect_and_filter_sign(image_path, params, output_dir=None):
     image = io.imread(image_path)
     
     if image.ndim == 3 and image.shape[2] == 4:
@@ -99,10 +100,8 @@ def detect_and_filter_sign(image_path, params):
     # ==========================================
     color_gated_edges = raw_edges & dilated_color_mask
     
-    # WELD: Fuse the dashed fragments of the circles into solid rings for the Chamfer matcher
     welded_edges = morphology.binary_closing(color_gated_edges, morphology.disk(2))
     
-    # BORDER WIPE: Erase the extreme 3 pixels of the image to kill outer JPEG frames
     welded_edges[0:3, :] = False
     welded_edges[-3:, :] = False
     welded_edges[:, 0:3] = False
@@ -125,11 +124,6 @@ def detect_and_filter_sign(image_path, params):
     def point_dist(p1, p2):
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
-    # ==========================================
-    # THE COLLAGE KILLER
-    # Photo seams are massive lines that span top-to-bottom. Signs are localized.
-    # We instantly delete any line larger than 85% of the image height.
-    # ==========================================
     max_allowed_len = image.shape[0] * 0.85
     filtered_lines = [line for line in raw_lines if point_dist(line[0], line[1]) < max_allowed_len]
     raw_lines = filtered_lines
@@ -170,7 +164,7 @@ def detect_and_filter_sign(image_path, params):
     valid_shapes = [poly for poly in polygons if len(poly) >= 3]
     print(f"Chained lines into {len(valid_shapes)} distinct geometric region proposals.")
 
-# ==========================================
+    # ==========================================
     # 6b. Localized Multi-Scale Chamfer Matching (With Noise Filtering)
     # ==========================================
     print("Running Fractional Chamfer Math on localized regions...")
@@ -194,7 +188,6 @@ def detect_and_filter_sign(image_path, params):
         size = int(max(width, height))
         aspect_ratio = width / height if height > 0 else 0
         
-        # FILTER 1: Size and Aspect Ratio check
         if size < 60 or aspect_ratio < 0.5 or aspect_ratio > 1.8: 
             continue 
         
@@ -216,7 +209,6 @@ def detect_and_filter_sign(image_path, params):
             templates = create_binary_templates(test_size)
             
             for shape_name, template in templates.items():
-                # Precision filter for specific geometries
                 if shape_name in ['Circle', 'Square', 'Octagon', 'Diamond']:
                     if aspect_ratio < 0.7 or aspect_ratio > 1.3:
                         continue 
@@ -236,7 +228,6 @@ def detect_and_filter_sign(image_path, params):
                     best_score = max_score
                     best_shape = shape_name
         
-        # FILTER 2: Minimum Chamfer Score to remove weak background noise
         if best_score > 0.60:
             unsorted_detections.append({
                 'poly': poly,
@@ -262,27 +253,36 @@ def detect_and_filter_sign(image_path, params):
     vector_canvas = np.zeros_like(image)
     overlay_image = image.copy()
     
-    # Background noise in blue
     for i, line_seg in enumerate(raw_lines):
         is_shape = any(line_seg in det['poly'] for det in final_detections)
         if not is_shape:
             p0, p1 = line_seg
             rr, cc = draw_line(p0[1], p0[0], p1[1], p1[0])
-            vector_canvas[rr, cc] = [0, 100, 255]
-            overlay_image[rr, cc] = [0, 100, 255]
+            for dr in range(0, 1):
+                for dc in range(0, 1):
+                    r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
+                    c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
+                    vector_canvas[r_thick, c_thick] = [0, 100, 255]
+                    overlay_image[r_thick, c_thick] = [0, 100, 255]
 
     for det in final_detections:
         min_x, min_y, max_x, max_y = det['bbox']
         
-        # Valid detection vectors in Red
         for line_seg in det['poly']:
             p0, p1 = line_seg
             rr, cc = draw_line(p0[1], p0[0], p1[1], p1[0])
-            vector_canvas[rr, cc] = [255, 0, 0]
+            for dr in range(-1, 2):
+                for dc in range(-1, 2):
+                    r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
+                    c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
+                    vector_canvas[r_thick, c_thick] = [255, 0, 0]
                     
-        # Yellow Bounding Box
         rr, cc = polygon_perimeter([min_y, min_y, max_y, max_y], [min_x, max_x, max_x, min_x])
-        overlay_image[rr, cc] = [255, 255, 0]
+        for dr in range(-2, 3):
+            for dc in range(-2, 3):
+                r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
+                c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
+                overlay_image[r_thick, c_thick] = [255, 255, 0]
 
         axes[2].text(min_x, min_y - 15, f"{det['shape']}\n{det['score']:.1f}%", 
                      color='black', fontsize=10, fontweight='bold',
@@ -296,11 +296,28 @@ def detect_and_filter_sign(image_path, params):
     
     for ax in axes: ax.axis('off')
     plt.tight_layout()
-    plt.show()
+    
+    # NEW: Save the figure instead of showing it if an output_dir is provided
+    if output_dir:
+        base_name = os.path.basename(image_path)
+        out_path = os.path.join(output_dir, f"detected_{base_name}")
+        plt.savefig(out_path, bbox_inches='tight')
+        print(f"Saved result to: {out_path}")
+        plt.close(fig) # Free up memory before the next image
+    else:
+        plt.show()
 
 # ==========================================
 if __name__ == "__main__":
-    target_img_file = "A1_Streetsigns/Sign5.png" 
+    
+    # NEW: Define input and output directories
+    input_folder = "A1_Streetsigns"
+    output_folder = "Sign Detection results"
+    
+    # Create the output folder if it doesn't already exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        print(f"Created output directory: '{output_folder}'")
     
     gatekeeper_params = {
             # Edge Detection Control
@@ -332,13 +349,24 @@ if __name__ == "__main__":
             'hough_min_line_length': 15,   
             'hough_line_gap': 10,          
             
-            'max_corner_gap': 20,          # Dropped slightly to tighten the bounding box loops
+            'max_corner_gap': 20,          
             
             # --- Chamfer System ---
-            'chamfer_tolerance': 3,        # Raised to 3 to accommodate the slightly thicker 'welded' edges!
+            'chamfer_tolerance': 3,        
         }
     
-    if os.path.exists(target_img_file):
-        detect_and_filter_sign(target_img_file, gatekeeper_params)
+    # NEW: Loop through every image in the target directory
+    if os.path.exists(input_folder):
+        print(f"Starting batch processing in '{input_folder}'...")
+        
+        for filename in os.listdir(input_folder):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                img_path = os.path.join(input_folder, filename)
+                print(f"\n--- Processing {filename} ---")
+                
+                # Pass the output folder to trigger the save function
+                detect_and_filter_sign(img_path, gatekeeper_params, output_folder)
+                
+        print("\nBatch processing complete!")
     else:
-        print(f"Error: Could not find '{target_img_file}'.")
+        print(f"Error: Could not find input folder '{input_folder}'. Please make sure it exists.")
