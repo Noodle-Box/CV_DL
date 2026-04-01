@@ -103,23 +103,60 @@ def detect_and_filter_sign(image_path, params):
                                                    min_size=params['min_edge_length'], 
                                                    connectivity=2)
     
-    # ==========================================
-    # 6. Straight Line Vector Extraction (Probabilistic Hough)
+  # ==========================================
+    # 6. Straight Line Extraction & Corner Chaining
     # ==========================================
     print("Extracting straight lines from pruned edges...")
     
-    lines = transform.probabilistic_hough_line(pruned_edges, 
+    raw_lines = transform.probabilistic_hough_line(pruned_edges, 
                                                threshold=params['hough_threshold'], 
                                                line_length=params['hough_min_line_length'],
                                                line_gap=params['hough_line_gap'])
     
-    # Sort the detected lines from longest to shortest
-    def get_line_length(l):
-        p0, p1 = l
-        return math.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2)
+    # Helper to calculate distance between two (x, y) points
+    def point_dist(p1, p2):
+        return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+
+    # Chain lines together if their endpoints are close to each other
+    polygons = []
+    max_gap = params.get('max_corner_gap', 20)
+    used_lines = set()
+    
+    for i, l1 in enumerate(raw_lines):
+        if i in used_lines: continue
         
-    lines.sort(key=get_line_length, reverse=True)
-    print(f"Found {len(lines)} straight line segments.")
+        # Start a new shape cluster
+        current_shape = [l1]
+        used_lines.add(i)
+        
+        # Keep searching for connecting lines until the loop closes
+        added_new = True
+        while added_new:
+            added_new = False
+            for j, l2 in enumerate(raw_lines):
+                if j in used_lines: continue
+                
+                # Does this new line touch ANY line already in our shape?
+                connects = False
+                for existing_line in current_shape:
+                    dists = [
+                        point_dist(existing_line[0], l2[0]), point_dist(existing_line[0], l2[1]),
+                        point_dist(existing_line[1], l2[0]), point_dist(existing_line[1], l2[1])
+                    ]
+                    if min(dists) <= max_gap:
+                        connects = True
+                        break
+                
+                if connects:
+                    current_shape.append(l2)
+                    used_lines.add(j)
+                    added_new = True
+                    
+        polygons.append(current_shape)
+
+    # A valid geometric shape should be made of at least 3 connected lines
+    valid_shapes = [poly for poly in polygons if len(poly) >= 3]
+    print(f"Chained lines into {len(valid_shapes)} distinct geometric shapes.")
 
     # ==========================================
     # 7. Visualization & Drawing
@@ -127,41 +164,43 @@ def detect_and_filter_sign(image_path, params):
     fig, axes = plt.subplots(1, 3, figsize=(25, 6))
     
     axes[0].imshow(pruned_edges, cmap='gray')
-    axes[0].set_title("1. Masked & Pruned Edges\n(Input for Line Detection)")
+    axes[0].set_title("1. Masked & Pruned Edges")
     
     vector_canvas = np.zeros_like(image)
     overlay_image = image.copy()
     
-    # Draw the extracted lines
-    # Red = Top 8 longest (targeting 4 edges of diamond + 4 edges of rectangle)
-    # Blue = Remaining shorter lines
-    for i, line_seg in enumerate(lines):
-        p0, p1 = line_seg
-        x0, y0 = p0
-        x1, y1 = p1
+    # Draw isolated noise lines in Blue
+    for i, line_seg in enumerate(raw_lines):
+        # Check if this line is part of any valid shape
+        is_shape = any(line_seg in poly for poly in valid_shapes)
         
-        if i < 8:
-            line_color = [255, 0, 0]  # Red
-            thickness = 3
-        else:
-            line_color = [0, 100, 255] # Blue
-            thickness = 1
-            
-        rr, cc = draw_line(y0, x0, y1, x1)
-        
-        # Thicken lines for the visualizer
-        for dr in range(-thickness//2 + 1, thickness//2 + 1):
-            for dc in range(-thickness//2 + 1, thickness//2 + 1):
-                r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
-                c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
-                vector_canvas[r_thick, c_thick] = line_color
-                overlay_image[r_thick, c_thick] = line_color
+        if not is_shape:
+            p0, p1 = line_seg
+            rr, cc = draw_line(p0[1], p0[0], p1[1], p1[0])
+            for dr in range(0, 1):
+                for dc in range(0, 1):
+                    r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
+                    c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
+                    vector_canvas[r_thick, c_thick] = [0, 100, 255]
+                    overlay_image[r_thick, c_thick] = [0, 100, 255]
+
+    # Draw valid connected Shapes in Bold Red
+    for poly in valid_shapes:
+        for line_seg in poly:
+            p0, p1 = line_seg
+            rr, cc = draw_line(p0[1], p0[0], p1[1], p1[0])
+            for dr in range(-1, 2):
+                for dc in range(-1, 2):
+                    r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
+                    c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
+                    vector_canvas[r_thick, c_thick] = [255, 0, 0]
+                    overlay_image[r_thick, c_thick] = [255, 0, 0]
 
     axes[1].imshow(vector_canvas)
-    axes[1].set_title("2. Extracted Straight Lines\n(Red = Top 8 Longest Segments)")
+    axes[1].set_title(f"2. Extracted Shapes\n(Red = {len(valid_shapes)} Connected Polygons)")
     
     axes[2].imshow(overlay_image)
-    axes[2].set_title("3. Lines Overlaid on Original")
+    axes[2].set_title("3. Shapes Overlaid on Original")
     
     for ax in axes:
         ax.axis('off')
@@ -171,7 +210,7 @@ def detect_and_filter_sign(image_path, params):
 
 # ==========================================
 if __name__ == "__main__":
-    target_img_file = "A1_Streetsigns/Sign2.jpg" 
+    target_img_file = "A1_Streetsigns/Sign5.png" 
     
     gatekeeper_params = {
             # Edge Detection Control
@@ -199,10 +238,11 @@ if __name__ == "__main__":
             'white_v_min': 0.85,       
             
             # --- Vector Extraction (Hough) ---
-            # These are now set very conservatively to avoid hallucinations
-            'hough_threshold': 20,         # Minimum pixels required to register a line
-            'hough_min_line_length': 40,   # Ignore tiny fragments
-            'hough_line_gap': 5,           # Only bridge very small gaps (no jumping across the image!)
+            'hough_threshold': 15,         # Dropped slightly to catch fainter edges
+            'hough_min_line_length': 15,   # DROPPED MASSIVELY: Catch the short sides of the Octagon & Triangle
+            'hough_line_gap': 10,          # Raised to bridge tiny pixelated gaps
+            
+            'max_corner_gap': 25,          # How close endpoints must be to snap together and form a shape
         }
     
     if os.path.exists(target_img_file):
