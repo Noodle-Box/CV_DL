@@ -4,9 +4,11 @@ import math
 import matplotlib.pyplot as plt
 from skimage import io, color, feature, morphology, exposure, restoration, transform
 from skimage.draw import polygon_perimeter, circle_perimeter, polygon, disk as draw_disk, line as draw_line
+from scipy.ndimage import distance_transform_edt
+from scipy.signal import fftconvolve
 
 # ==========================================
-# 1. Multi-Class Shape Generation (Saved for Phase 2)
+# 1. Multi-Class Shape Generation
 # ==========================================
 def get_shape_vertices(shape_type, size):
     half_size = (size - 1) / 2.0
@@ -35,7 +37,6 @@ def get_shape_vertices(shape_type, size):
     return y, x
 
 def create_binary_templates(size):
-    # ADDED 'Diamond' to the template generation list
     shapes = ['Octagon', 'Triangle_Up', 'Triangle_Down', 'Square', 'Rectangle', 'Diamond']
     templates = {}
     
@@ -67,57 +68,72 @@ def create_binary_templates(size):
 def detect_and_filter_sign(image_path, params):
     image = io.imread(image_path)
     
-    # --- PNG FIX: Drop the Alpha Channel (RGBA -> RGB) ---
     if image.ndim == 3 and image.shape[2] == 4:
         image = image[:, :, :3]
         
     gray_img = color.rgb2gray(image)
 
-    # 1. Enhanced Edge Detection (CLAHE)
     enhanced_gray = exposure.equalize_adapthist(gray_img, clip_limit=params['clahe_clip_limit'])
     
-    # 2. Edge-Preserving Smoothing
     blurred = restoration.denoise_bilateral(enhanced_gray, 
                                             sigma_color=params['bilateral_color'], 
                                             sigma_spatial=params['bilateral_spatial'])
                                             
-    # 3. Manual Canny Thresholds
     raw_edges = feature.canny(blurred, 
                               sigma=params['canny_sigma'],
                               low_threshold=params['canny_low'],
                               high_threshold=params['canny_high'])
     
-    # 4. The Retroreflective Gatekeeper
     hsv = color.rgb2hsv(image)
     H, S, V = hsv[..., 0], hsv[..., 1], hsv[..., 2]
     
     red_mask = ((H < 0.05) | (H > 0.90)) & (S > params['color_s_min']) & (V > params['color_v_min'])
     yellow_mask = (H > 0.05) & (H < 0.3) & (S > params['yellow_s_min']) & (V > params['yellow_v_min'])
+    blue_mask = (H > 0.50) & (H < 0.75) & (S > params['color_s_min']) & (V > params['color_v_min'])
     
-    combined_color_mask = red_mask | yellow_mask
+    combined_color_mask = red_mask | yellow_mask | blue_mask
     dilated_color_mask = morphology.dilation(combined_color_mask, morphology.disk(25))
     
-    # 5. Filter & Prune
+    # ==========================================
+    # 5. Filter, Weld & Prune
+    # ==========================================
     color_gated_edges = raw_edges & dilated_color_mask
-    pruned_edges = morphology.remove_small_objects(color_gated_edges, 
+    
+    # WELD: Fuse the dashed fragments of the circles into solid rings for the Chamfer matcher
+    welded_edges = morphology.binary_closing(color_gated_edges, morphology.disk(2))
+    
+    # BORDER WIPE: Erase the extreme 3 pixels of the image to kill outer JPEG frames
+    welded_edges[0:3, :] = False
+    welded_edges[-3:, :] = False
+    welded_edges[:, 0:3] = False
+    welded_edges[:, -3:] = False
+
+    pruned_edges = morphology.remove_small_objects(welded_edges, 
                                                    min_size=params['min_edge_length'], 
                                                    connectivity=2)
     
-  # ==========================================
-    # 6. Straight Line Extraction & Corner Chaining
     # ==========================================
-    print("Extracting straight lines from pruned edges...")
+    # 6a. Straight Line Extraction & Corner Chaining
+    # ==========================================
+    print("Extracting straight lines and chaining corners...")
     
     raw_lines = transform.probabilistic_hough_line(pruned_edges, 
                                                threshold=params['hough_threshold'], 
                                                line_length=params['hough_min_line_length'],
                                                line_gap=params['hough_line_gap'])
     
-    # Helper to calculate distance between two (x, y) points
     def point_dist(p1, p2):
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
-    # Chain lines together if their endpoints are close to each other
+    # ==========================================
+    # THE COLLAGE KILLER
+    # Photo seams are massive lines that span top-to-bottom. Signs are localized.
+    # We instantly delete any line larger than 85% of the image height.
+    # ==========================================
+    max_allowed_len = image.shape[0] * 0.85
+    filtered_lines = [line for line in raw_lines if point_dist(line[0], line[1]) < max_allowed_len]
+    raw_lines = filtered_lines
+
     polygons = []
     max_gap = params.get('max_corner_gap', 20)
     used_lines = set()
@@ -125,18 +141,15 @@ def detect_and_filter_sign(image_path, params):
     for i, l1 in enumerate(raw_lines):
         if i in used_lines: continue
         
-        # Start a new shape cluster
         current_shape = [l1]
         used_lines.add(i)
         
-        # Keep searching for connecting lines until the loop closes
         added_new = True
         while added_new:
             added_new = False
             for j, l2 in enumerate(raw_lines):
                 if j in used_lines: continue
                 
-                # Does this new line touch ANY line already in our shape?
                 connects = False
                 for existing_line in current_shape:
                     dists = [
@@ -154,57 +167,134 @@ def detect_and_filter_sign(image_path, params):
                     
         polygons.append(current_shape)
 
-    # A valid geometric shape should be made of at least 3 connected lines
     valid_shapes = [poly for poly in polygons if len(poly) >= 3]
-    print(f"Chained lines into {len(valid_shapes)} distinct geometric shapes.")
+    print(f"Chained lines into {len(valid_shapes)} distinct geometric region proposals.")
+
+# ==========================================
+    # 6b. Localized Multi-Scale Chamfer Matching (With Noise Filtering)
+    # ==========================================
+    print("Running Fractional Chamfer Math on localized regions...")
+    
+    dt_image = distance_transform_edt(~pruned_edges)
+    chamfer_tol = params.get('chamfer_tolerance', 2) 
+    hit_mask = (dt_image <= chamfer_tol).astype(float)
+    
+    unsorted_detections = []
+    
+    for poly in valid_shapes:
+        pts = []
+        for line in poly:
+            pts.extend([line[0], line[1]])
+        pts = np.array(pts)
+        min_x, min_y = np.min(pts, axis=0)
+        max_x, max_y = np.max(pts, axis=0)
+        
+        width = max_x - min_x
+        height = max_y - min_y
+        size = int(max(width, height))
+        aspect_ratio = width / height if height > 0 else 0
+        
+        # FILTER 1: Size and Aspect Ratio check
+        if size < 60 or aspect_ratio < 0.5 or aspect_ratio > 1.8: 
+            continue 
+        
+        pad = int(size * 0.25) 
+        p_min_y = max(0, int(min_y - pad))
+        p_max_y = min(hit_mask.shape[0], int(max_y + pad))
+        p_min_x = max(0, int(min_x - pad))
+        p_max_x = min(hit_mask.shape[1], int(max_x + pad))
+        
+        patch_hit_mask = hit_mask[p_min_y:p_max_y, p_min_x:p_max_x]
+        
+        best_score = 0.0
+        best_shape = "Unknown"
+        
+        for scale in [0.9, 1.0, 1.1]:
+            test_size = int(size * scale)
+            if test_size < 15: continue
+            
+            templates = create_binary_templates(test_size)
+            
+            for shape_name, template in templates.items():
+                # Precision filter for specific geometries
+                if shape_name in ['Circle', 'Square', 'Octagon', 'Diamond']:
+                    if aspect_ratio < 0.7 or aspect_ratio > 1.3:
+                        continue 
+                        
+                if patch_hit_mask.shape[0] < template.shape[0] or patch_hit_mask.shape[1] < template.shape[1]:
+                    pad_y = max(0, template.shape[0] - patch_hit_mask.shape[0])
+                    pad_x = max(0, template.shape[1] - patch_hit_mask.shape[1])
+                    patch_hit_mask = np.pad(patch_hit_mask, ((0, pad_y), (0, pad_x)), mode='constant')
+
+                num_edge_pixels = np.sum(template)
+                if num_edge_pixels == 0: continue
+                
+                match_counts = fftconvolve(patch_hit_mask, template[::-1, ::-1].astype(float), mode='valid')
+                max_score = np.max(match_counts) / num_edge_pixels
+                
+                if max_score > best_score:
+                    best_score = max_score
+                    best_shape = shape_name
+        
+        # FILTER 2: Minimum Chamfer Score to remove weak background noise
+        if best_score > 0.60:
+            unsorted_detections.append({
+                'poly': poly,
+                'shape': best_shape,
+                'score': best_score * 100,
+                'bbox': (min_x, min_y, max_x, max_y),
+                'min_x': min_x
+            })
+
+    final_detections = sorted(unsorted_detections, key=lambda d: d['min_x'])
+
+    print(f"\nFinal Sorted Detections (Left to Right):")
+    for i, det in enumerate(final_detections):
+        print(f" Sign {i+1}: {det['shape']} ({det['score']:.1f}%) at x={int(det['min_x'])}")
 
     # ==========================================
-    # 7. Visualization & Drawing
+    # 7. YOLO-Style Visualization & Drawing
     # ==========================================
     fig, axes = plt.subplots(1, 3, figsize=(25, 6))
-    
     axes[0].imshow(pruned_edges, cmap='gray')
-    axes[0].set_title("1. Masked & Pruned Edges")
+    axes[0].set_title("1. Masked, Welded & Pruned Edges")
     
     vector_canvas = np.zeros_like(image)
     overlay_image = image.copy()
     
-    # Draw isolated noise lines in Blue
+    # Background noise in blue
     for i, line_seg in enumerate(raw_lines):
-        # Check if this line is part of any valid shape
-        is_shape = any(line_seg in poly for poly in valid_shapes)
-        
+        is_shape = any(line_seg in det['poly'] for det in final_detections)
         if not is_shape:
             p0, p1 = line_seg
             rr, cc = draw_line(p0[1], p0[0], p1[1], p1[0])
-            for dr in range(0, 1):
-                for dc in range(0, 1):
-                    r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
-                    c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
-                    vector_canvas[r_thick, c_thick] = [0, 100, 255]
-                    overlay_image[r_thick, c_thick] = [0, 100, 255]
+            vector_canvas[rr, cc] = [0, 100, 255]
+            overlay_image[rr, cc] = [0, 100, 255]
 
-    # Draw valid connected Shapes in Bold Red
-    for poly in valid_shapes:
-        for line_seg in poly:
+    for det in final_detections:
+        min_x, min_y, max_x, max_y = det['bbox']
+        
+        # Valid detection vectors in Red
+        for line_seg in det['poly']:
             p0, p1 = line_seg
             rr, cc = draw_line(p0[1], p0[0], p1[1], p1[0])
-            for dr in range(-1, 2):
-                for dc in range(-1, 2):
-                    r_thick = np.clip(rr + dr, 0, image.shape[0] - 1)
-                    c_thick = np.clip(cc + dc, 0, image.shape[1] - 1)
-                    vector_canvas[r_thick, c_thick] = [255, 0, 0]
-                    overlay_image[r_thick, c_thick] = [255, 0, 0]
+            vector_canvas[rr, cc] = [255, 0, 0]
+                    
+        # Yellow Bounding Box
+        rr, cc = polygon_perimeter([min_y, min_y, max_y, max_y], [min_x, max_x, max_x, min_x])
+        overlay_image[rr, cc] = [255, 255, 0]
+
+        axes[2].text(min_x, min_y - 15, f"{det['shape']}\n{det['score']:.1f}%", 
+                     color='black', fontsize=10, fontweight='bold',
+                     bbox=dict(facecolor='yellow', alpha=0.9, edgecolor='none', pad=2),
+                     ha='left', va='bottom')
 
     axes[1].imshow(vector_canvas)
-    axes[1].set_title(f"2. Extracted Shapes\n(Red = {len(valid_shapes)} Connected Polygons)")
-    
+    axes[1].set_title(f"2. Valid Signs\n({len(final_detections)} Detected)")
     axes[2].imshow(overlay_image)
-    axes[2].set_title("3. Shapes Overlaid on Original")
+    axes[2].set_title("3. Final Classification")
     
-    for ax in axes:
-        ax.axis('off')
-        
+    for ax in axes: ax.axis('off')
     plt.tight_layout()
     plt.show()
 
@@ -238,11 +328,14 @@ if __name__ == "__main__":
             'white_v_min': 0.85,       
             
             # --- Vector Extraction (Hough) ---
-            'hough_threshold': 15,         # Dropped slightly to catch fainter edges
-            'hough_min_line_length': 15,   # DROPPED MASSIVELY: Catch the short sides of the Octagon & Triangle
-            'hough_line_gap': 10,          # Raised to bridge tiny pixelated gaps
+            'hough_threshold': 15,         
+            'hough_min_line_length': 15,   
+            'hough_line_gap': 10,          
             
-            'max_corner_gap': 25,          # How close endpoints must be to snap together and form a shape
+            'max_corner_gap': 20,          # Dropped slightly to tighten the bounding box loops
+            
+            # --- Chamfer System ---
+            'chamfer_tolerance': 3,        # Raised to 3 to accommodate the slightly thicker 'welded' edges!
         }
     
     if os.path.exists(target_img_file):

@@ -3,49 +3,63 @@
 ############################################### Import Libraries ################################################################
 
 import numpy as np
-import mediapipe as mp
 import matplotlib.pyplot as plt
-from skimage import io, color, filters, restoration
+from skimage import io, color, filters, restoration, morphology, measure
 from skimage.util import img_as_ubyte, img_as_float
 from sklearn.cluster import MiniBatchKMeans
+
 
 ################################################ Function Definitions #############################################################
 
 def get_foreground_mask(image_uint8):
     """
-    Uses MediaPipe to isolate the subject. 
-    MediaPipe requires standard 8-bit RGB images.
+    Updated Skin Segmentation with stronger Morphological Closing.
+    Fills in the 'holes' (eyes/mouth) to create a solid silhouette.
     """
-    # The correct direct import for modern MediaPipe versions
-    from mediapipe.solutions import selfie_segmentation as mp_selfie_segmentation
+    hsv_image = color.rgb2hsv(image_uint8)
+    hue, sat, val = hsv_image[:,:,0], hsv_image[:,:,1], hsv_image[:,:,2]
     
-    with mp_selfie_segmentation.SelfieSegmentation(model_selection=1) as selfie_segmentation:
-        results = selfie_segmentation.process(image_uint8)
-        
-        if results.segmentation_mask is None:
-            return np.ones(image_uint8.shape, dtype=bool) 
-            
-        mask = results.segmentation_mask
-        condition = np.stack((mask,) * 3, axis=-1) > 0.5
-        return condition
+    # Refined Skin Thresholds
+    skin_mask = (hue < 0.15) & (sat > 0.15) & (val > 0.15)
+    
+    # Stronger Closing: This fills in facial features for a solid cartoon look
+    # Uses a larger disk as discussed in Lecture 2 for region properties
+    cleaned_mask = morphology.binary_closing(skin_mask, morphology.disk(25))
+    cleaned_mask = morphology.remove_small_objects(cleaned_mask, min_size=500)
+    
+    labels = measure.label(cleaned_mask)
+    props = measure.regionprops(labels)
+    if not props: return np.ones(image_uint8.shape, dtype=bool)
+    
+    largest_label = max(props, key=lambda x: x.area).label
+    final_mask = (labels == largest_label)
+    return np.stack((final_mask,) * 3, axis=-1)
 
-def apply_kmeans(image_float, k=6):
+def apply_kmeans(image_float, k=5): # Reduced K to 5 for flatter, "Target" look
     """
-    Method 1: Color Quantization via K-Means Clustering.
-    Using MiniBatchKMeans from scikit-learn is significantly faster for images.
+    Upgraded Method: Spatial Median Filtering + Quantization.
+    Median filters are excellent for preserving edges while removing the 
+    speckle noise seen in your previous result.
     """
-    h, w, c = image_float.shape
-    # Flatten the image to a 2D array of pixels
-    pixel_values = image_float.reshape(h * w, c)
+    print("   -> Applying Median Filter for surface smoothing...")
+    # Median filter effectively removes the 'ugly' noise splotches
+    from skimage.filters import median
+    from skimage.morphology import disk
     
-    # Fit the K-Means algorithm
+    # Process each channel to maintain color integrity
+    smoothed = np.zeros_like(image_float)
+    for i in range(3):
+        smoothed[:,:,i] = median(image_float[:,:,i], disk(7))
+
+    h, w, c = smoothed.shape
+    pixel_values = smoothed.reshape(h * w, c)
+    
+    print(f"   -> Quantizing to {k} colors...")
     kmeans = MiniBatchKMeans(n_clusters=k, random_state=42, n_init="auto")
     labels = kmeans.fit_predict(pixel_values)
     centers = kmeans.cluster_centers_
-    
-    # Reconstruct the image with the quantized color centers
-    cartoonized_image = centers[labels].reshape(h, w, c)
-    return cartoonized_image
+
+    return centers[labels].reshape(h, w, c)
 
 def apply_bilateral(image_float):
     """
@@ -62,15 +76,15 @@ def apply_bilateral(image_float):
 
 def extract_edges(image_float):
     """
-    Uses the Sobel filter to find strong gradients and creates a dark edge mask.
+    Cleaned Edge Detection: Uses a higher threshold to avoid 'messy' lines.
     """
     gray = color.rgb2gray(image_float)
-    # Sobel calculates the gradient magnitude
-    edge_magnitude = filters.sobel(gray)
+    # Stronger blur here prevents the 'hairy' edges in the results
+    blurred_gray = filters.gaussian(gray, sigma=2.0)
+    edge_magnitude = filters.sobel(blurred_gray)
     
-    # Threshold the gradients to isolate the strongest edges
-    # We invert it so edges are False (dark) and flat regions are True (bright)
-    binary_edges = edge_magnitude < 0.04 
+    # Increased threshold (0.05) ensures only major outlines are drawn
+    binary_edges = edge_magnitude < 0.05 
     return np.stack((binary_edges,) * 3, axis=-1)
 
 def cartoonize(image_path, method='kmeans'):
