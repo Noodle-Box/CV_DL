@@ -1,3 +1,5 @@
+######################### Helper Function for Assignment 1 #########################
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from skimage import io, color, data, feature

@@ -48,7 +48,7 @@ beta = 0.5      # brightness control (shift scalar)
 outImageContrast = alpha * outImageContrast + beta
 outImageContrast = np.clip(outImageContrast, 0, 1) # Clip values to be in the range [0, 1]
 
-#plt.imshow(outImageContrast, cmap='gray')
+#plt.imshow(outImageContrast, cmap='gray')P
 #plt.title('Image with customizable contrast and brightness')
 
 
