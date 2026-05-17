@@ -28,8 +28,8 @@ else:
 
 ############################################# Neural Network Modelling, Training, Testing ##############################################
 
-# ------------------ From here, we build our neural network model --------------------
-# First, we build the residual blocks. The following codes build Residual Block-I and Residual Block-II (feel free to replace this part with your own codes).
+
+# Code to build Residual Block-I and Residual Block-II. From given code draft (untouched)
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResidualBlock, self).__init__()
@@ -51,11 +51,10 @@ class ResidualBlock(nn.Module):
         out += self.shortcut(x)
         return F.relu(out)
 
-
-# ---------------- Then we build the ResNet structure (YOU NEED TO COMPLETE THIS PART) ----------------
+# Building the ResNet-18 architecture. 
 class ResNet18(nn.Module):
 
-    def __init__(self, input_channels=3, channel_nums=None):
+    def __init__(self, input_channels=3, channel_nums=None, n_classes=8):
         super(ResNet18, self).__init__()
 
         # Use hyperparameters defined in main function. Used for tuning and optimizing
@@ -120,10 +119,32 @@ class ResNet18(nn.Module):
             ResidualBlock(in_channels=c4, out_channels=c4, stride=1)
         )
 
+        # 2D global average pooling:
+        # AdaptiveAvgPool2d((1, 1)) averages each C4 feature map into a single value,
+        # so the output shape becomes [batch_size, C4, 1, 1].
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Flatten converts pooled feature maps from [batch_size, C4, 1, 1] to
+        # [batch_size, C4], which is the required input shape for fully connected layers.
+        self.flatten = nn.Flatten()
+
+        # Fully connected classifier:
+        # The first linear layer reduces the C4 feature vector to C4/2 features.
+        # The ReLU adds non-linearity before the final linear layer maps features to
+        # the 8 BloodMNIST class logits. Softmax is not used here because nn.CrossEntropyLoss expects raw logits.
+        self.fully_connected = nn.Sequential(
+            nn.Linear(c4, c4 // 2),
+            nn.ReLU(inplace=True),
+            nn.Linear(c4 // 2, n_classes)
+        )
+
     def forward(self, x):
         # Pass the BloodMNIST image batch through the initial feature extractor.
         out = self.initial(x)
         out = self.block_cascade(out)
+        out = self.global_avg_pool(out)
+        out = self.flatten(out)
+        out = self.fully_connected(out)
         return out
 
 
@@ -234,7 +255,7 @@ if __name__ == '__main__':
     # Create an instance of the neural network, and put it on GPU.
     # Note for markers: I have an RTX5070 GPU so I'll be training it locally
     # channel_nums is passed into ResNet18 so different [C1, C2, C3, C4] settings can be tested as hyperparameter experiments.
-    model = ResNet18(input_channels=input_channel, channel_nums=channel_nums).to(device)
+    model = ResNet18(input_channels=input_channel, channel_nums=channel_nums, n_classes=n_classes).to(device)
 
     # We use CrossEntropyLoss function in our multi-class task
     criterion = nn.CrossEntropyLoss()
