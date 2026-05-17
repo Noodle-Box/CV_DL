@@ -53,9 +53,96 @@ class ResidualBlock(nn.Module):
 
 
 # ---------------- Then we build the ResNet structure (YOU NEED TO COMPLETE THIS PART) ----------------
-class ResNet18(nn.Module): pass
+class ResNet18(nn.Module):
 
-    ########### BUILD YOUR CODE HERE ############
+    def __init__(self, input_channels=3, channel_nums=None):
+        super(ResNet18, self).__init__()
+
+        # Use hyperparameters defined in main function. Used for tuning and optimizing
+        if len(channel_nums) != 4:
+            raise ValueError("channel_nums must contain four values: [C1, C2, C3, C4]")
+        self.channel_nums = channel_nums
+        c1, c2, c3, c4 = self.channel_nums
+
+        # Initial layer from the assignment specification:
+        # Conv2d 7x7 stride 2 padding 3 -> BatchNorm2d -> ReLU -> MaxPool2d 7x7 stride 2 padding 1.
+        # Input tensor shape from the BloodMNIST dataloader: [batch_size, 3, 28, 28].
+        # The 7x7 convolution increases the feature depth from 3 RGB channels to C1
+        # feature maps while downsampling the spatial size from 28x28 to 14x14.
+        self.initial_conv = nn.Conv2d(
+            in_channels=input_channels,
+            out_channels=c1,
+            kernel_size=(7, 7),
+            stride=2,
+            padding=3,
+            dilation=1,
+            bias=False
+        )
+
+        # Batch normalization stabilizes the distribution of each of the C1 feature
+        # maps before the non-linear activation.
+        self.initial_bn = nn.BatchNorm2d(c1)
+
+        # ReLU introduces non-linearity so the network can learn more complex image
+        # patterns than a purely linear stack of convolutions.
+        self.initial_relu = nn.ReLU(inplace=True)
+
+        # Max pooling follows the task sheet exactly: 7x7 kernel, stride 2, padding 1.
+        # With a 28x28 input image, the tensor shape after this initial layer becomes
+        # [batch_size, C1, 5, 5].
+        self.initial_pool = nn.MaxPool2d(
+            kernel_size=(7, 7),
+            stride=2,
+            padding=1,
+            dilation=1
+        )
+
+        # Group 1 from the assignment specification:
+        # Two Residual Block-I modules. Both keep the number of channels equal to C1
+        # and use stride 1, so the residual shortcut remains an identity connection.
+        self.group1 = nn.Sequential(
+            ResidualBlock(in_channels=c1, out_channels=c1, stride=1),
+            ResidualBlock(in_channels=c1, out_channels=c1, stride=1)
+        )
+
+        # Group 2 from the assignment specification:
+        # The first block is Residual Block-II, which changes the channel count from
+        # C1 to C2 and downsamples spatially using stride 2. The second block is
+        # Residual Block-I, which keeps the channel count at C2 using stride 1.
+        self.group2 = nn.Sequential(
+            ResidualBlock(in_channels=c1, out_channels=c2, stride=2),
+            ResidualBlock(in_channels=c2, out_channels=c2, stride=1)
+        )
+
+        # Group 3 from the assignment specification:
+        # The first block is Residual Block-II, which changes the channel count from
+        # C2 to C3 and downsamples spatially using stride 2. The second block is
+        # Residual Block-I, which keeps the channel count at C3 using stride 1.
+        self.group3 = nn.Sequential(
+            ResidualBlock(in_channels=c2, out_channels=c3, stride=2),
+            ResidualBlock(in_channels=c3, out_channels=c3, stride=1)
+        )
+
+        # Group 4 from the assignment specification:
+        # The first block is Residual Block-II, which changes the channel count from
+        # C3 to C4 and downsamples spatially using stride 2. The second block is
+        # Residual Block-I, which keeps the channel count at C4 using stride 1.
+        self.group4 = nn.Sequential(
+            ResidualBlock(in_channels=c3, out_channels=c4, stride=2),
+            ResidualBlock(in_channels=c4, out_channels=c4, stride=1)
+        )
+
+    def forward(self, x):
+        # Pass the BloodMNIST image batch through the initial feature extractor.
+        out = self.initial_conv(x)
+        out = self.initial_bn(out)
+        out = self.initial_relu(out)
+        out = self.initial_pool(out)
+        out = self.group1(out)
+        out = self.group2(out)
+        out = self.group3(out)
+        out = self.group4(out)
+        return out
 
 
 # ---------------- From here, we define a function to train the neural network (YOU NEED TO COMPLETE THIS PART) ----------------
@@ -164,8 +251,8 @@ if __name__ == '__main__':
 
     # Create an instance of the neural network, and put it on GPU.
     # Note for markers: I have an RTX5070 GPU so I'll be training it locally
-    # Note that you may need to pass some parameters to ResNet18() if your construction function of ResNet18() need to use them
-    model = ResNet18().to(device)
+    # channel_nums is passed into ResNet18 so different [C1, C2, C3, C4] settings can be tested as hyperparameter experiments.
+    model = ResNet18(input_channels=input_channel, channel_nums=channel_nums).to(device)
 
     # We use CrossEntropyLoss function in our multi-class task
     criterion = nn.CrossEntropyLoss()
