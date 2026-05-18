@@ -1,3 +1,4 @@
+################################################# Import Libraries ################################################
 # Standard imports
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ import torch.utils.data as data
 import medmnist
 from medmnist import INFO
 
-
+# Set up for GPU/CPU acceleration
 if torch.backends.mps.is_available():
     device = torch.device("mps")
 elif torch.cuda.is_available():
@@ -157,10 +158,16 @@ def train(model, train_dataset, optimizer, criterion, clip):
     ########### BUILD YOUR CODE HERE ############
 
 
+    ## Why do we use crossEntropyLoss?
+    criterion = nn.CrossEntropyLoss()  # CrossEntropyLoss is used for multi-class classification tasks. 
+    clip = clip
+    training_data = train_dataset
+
 # ---------------- From here, we define a function to evaluate the trained neural network (YOU NEED TO COMPLETE THIS PART) ----------------
 def evaluate(model, test_dataset, criterion):
     model.eval()
 
+    ## Why do we use crossEntropyLoss?
     ########### BUILD YOUR CODE HERE ############
 
 # Main function to load the datasets for model training, validation (parameter tuning) and testing
@@ -245,7 +252,7 @@ if __name__ == '__main__':
     SIZE = 28         # Set the image size to 28 (i.e., 28x28 pixels)
     train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info = load_bloodmnist_data(batch_size=BATCH_SIZE, download=DOWNLOAD, size=SIZE)
 
-    ########################################################## 
+    ########################################################## ######################################################################
 
     # Number of channels (i.e., C1, C2, C3, C4 in Figure 1 of the assignment task sheet). This is the hyperparameter that you need to determine
     # YOU NEED TO FIND THE OPTIMUM NUMBER OF CHANNELS IN YOUR ASSIGNMENT
@@ -264,15 +271,21 @@ if __name__ == '__main__':
     # Use torch.nn.utils.clip_grad_norm_(model.parameters(), clip) in your training function to implement this gradient clip (by setting clip=1, we clip the gradient during the training)
     CLIP = 1
 
+    ########################################################## ######################################################################
+
     # Learning rate is initially set as 1e-4. This is another hyperparameter that you need to determine
     # YOU NEED TO FIND THE OPTIMUM LEARNING RATE IN YOUR ASSIGNMENT
     # Hint: Consider 1e-3 and 1e-5 in addition to the initial one
     learning_rate = 1e-4
 
-    # We use ADAM as our optimizer
-    #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    # The maximum number of epochs to train the neural network. The initial maximum number of epochs is set as 100 (you may increase it if you feel 100 is not a sufficient number for achieving the optimum performance).
+    ########################################################## ######################################################################
+    # We use ADAM as our optimizer
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+
+
+    ########################################################## ######################################################################    # The maximum number of epochs to train the neural network. The initial maximum number of epochs is set as 100 (you may increase it if you feel 100 is not a sufficient number for achieving the optimum performance).
     # YOU NEED TO FIND THE OPTIMUM NUMBER OF EPOCHS THAT GIVES THE BEST CLASSIFICATION PERFORMANCE.
     epoch_num = 10
 
@@ -282,7 +295,10 @@ if __name__ == '__main__':
     ########### BUILD YOUR CODE HERE ############
         pass
 
+
+########################################################## ######################################################################
     # ---------------- From here, we evaluate the trained neural network (YOU NEED TO COMPLETE THIS PART) ----------------
     # The assessors should be able to load and evaluate the trained models here
 
     ########### BUILD YOUR CODE HERE ############
+    # evaluate()
