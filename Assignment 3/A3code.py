@@ -29,7 +29,6 @@ elif torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-
 ################################# The ResNet-18 Architecture + Residual Block Structure from draft ##################################
 
 # Code to build Residual Block-I and Residual Block-II. From given code draft (untouched)
@@ -60,10 +59,6 @@ class ResNet18(nn.Module):
 
     def __init__(self, input_channels=3, channel_nums=None, n_classes=8):
         super(ResNet18, self).__init__()
-
-        # Use hyperparameters defined in main function. Used for tuning and optimizing
-        if channel_nums is None:
-            channel_nums = [16, 32, 64, 128]
 
         if len(channel_nums) != 4:
             raise ValueError("channel_nums must contain four values: [C1, C2, C3, C4]")
@@ -305,7 +300,7 @@ def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, ep
 # Evaluates model without updating weights
 # Produces output metrics used for evaluation figures and tables.
 # Used in both model validation during training and final test evaluation.
-def evaluate(model, eval_dataset, criterion, class_names=None, show_report=False, dataset_name="Evaluation"):
+def evaluate(model, eval_dataset, criterion, class_names=None):
 
     model.eval()
 
@@ -576,7 +571,7 @@ def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_cla
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     history = train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num)
-    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Final Test")
+    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names)
 
     plot_training_losses(history, hyperparameter_text=hyperparameter_text, save_path="model_outputs/Training_Validation_Loss.png")
 
@@ -605,7 +600,7 @@ def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
                      n_classes=checkpoint["n_classes"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Loaded Model Test")
+    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names)
 
     hyperparameter_text = (f"Channels: {checkpoint['channel_nums']} |" f"Learning rate: {checkpoint['learning_rate']} | "f"Epochs: {checkpoint['epoch_num']}"
     )
@@ -630,7 +625,7 @@ if __name__ == '__main__':
 
     # TO MARKER: Change this to "test_model" to just run the pre-trained model to test the testing dataset and give evaluation metrics
     # Otherwise: "train" re-trains the new model
-    RUN_MODE = "test_model"
+    RUN_MODE = "train"
 
     #### MAIN HYPERPARAMETERS FOR TUNING ####
     #
