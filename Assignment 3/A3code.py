@@ -231,7 +231,7 @@ def load_bloodmnist_data(batch_size, download, size):
 # Helper function to get the class names from dataset information. thought i'd write this rather than just hardcoding the class names in
 def get_class_names(info, n_classes):
     # Convert the MedMNIST label dictionary into an ordered class-name list.
-    # This is used for metric tables and confusion matrix legends.
+    # Used for metric tables and confusion matrix legends.
     return [info["label"][str(i)] for i in range(n_classes)]
 
 
@@ -338,48 +338,18 @@ def evaluate(model, eval_dataset, criterion, class_names=None, show_report=False
     # Classification metrics show class-level performance beyond overall accuracy.
     # zero_division=0 avoids warnings when an untrained model predicts no samples for a class.
     conf_matrix = confusion_matrix(all_labels, all_predictions, labels=labels_for_report)
-    per_class_precision = metrics.precision_score(
-        all_labels,
-        all_predictions,
-        labels=labels_for_report,
-        average=None,
-        zero_division=0
-    )
-    per_class_recall = metrics.recall_score(
-        all_labels,
-        all_predictions,
-        labels=labels_for_report,
-        average=None,
-        zero_division=0
-    )
-    macro_precision = metrics.precision_score(
-        all_labels,
-        all_predictions,
-        labels=labels_for_report,
-        average="macro",
-        zero_division=0
-    )
-    weighted_precision = metrics.precision_score(
-        all_labels,
-        all_predictions,
-        labels=labels_for_report,
-        average="weighted",
-        zero_division=0
-    )
-    macro_recall = metrics.recall_score(
-        all_labels,
-        all_predictions,
-        labels=labels_for_report,
-        average="macro",
-        zero_division=0
-    )
-    weighted_recall = metrics.recall_score(
-        all_labels,
-        all_predictions,
-        labels=labels_for_report,
-        average="weighted",
-        zero_division=0
-    )
+
+    per_class_precision = metrics.precision_score(all_labels, all_predictions, labels=labels_for_report, average=None, zero_division=0)
+
+    per_class_recall = metrics.recall_score(all_labels, all_predictions, labels=labels_for_report, average=None, zero_division=0)
+
+    macro_precision = metrics.precision_score(all_labels, all_predictions, labels=labels_for_report, average="macro", zero_division=0)
+
+    weighted_precision = metrics.precision_score(all_labels, all_predictions, labels=labels_for_report, average="weighted", zero_division=0)
+
+    macro_recall = metrics.recall_score(all_labels, all_predictions, labels=labels_for_report, average="macro", zero_division=0)
+
+    weighted_recall = metrics.recall_score(all_labels, all_predictions, labels=labels_for_report, average="weighted", zero_division=0)
 
     class_metrics = []
     if class_names is not None:
@@ -453,28 +423,15 @@ def plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Mat
     threshold = conf_matrix.max() / 2.0
     for row in range(conf_matrix.shape[0]):
         for col in range(conf_matrix.shape[1]):
-            ax.text(
-                col,
-                row,
-                format(conf_matrix[row, col], "d"),
-                ha="center",
-                va="center",
-                color="white" if conf_matrix[row, col] > threshold else "black"
-            )
+            ax.text(col, row, format(conf_matrix[row, col], "d"), ha="center", va="center", 
+                    color="white" if conf_matrix[row, col] > threshold else "black")
 
     ax.set_ylabel("Actual", fontweight="bold")
     ax.set_xlabel("Predicted", fontweight="bold")
 
     legend_text = "\n".join([f"{index}: {class_name}" for index, class_name in enumerate(class_names)])
-    fig.text(
-        0.02,
-        0.03,
-        legend_text,
-        fontsize=9,
-        va="bottom",
-        ha="left",
-        bbox={"facecolor": "white", "edgecolor": "black", "boxstyle": "round,pad=0.4"}
-    )
+    fig.text(0.02, 0.03, legend_text, fontsize=9, va="bottom", ha="left", 
+             bbox={"facecolor": "white", "edgecolor": "black", "boxstyle": "round,pad=0.4"})
 
     if hyperparameter_text is not None:
         fig.text(0.5, 0.96, f"Model: {hyperparameter_text}", ha="center", fontsize=10, fontweight="bold")
@@ -495,11 +452,7 @@ def plot_classification_metrics_table(test_metrics, title="Classification Metric
     # Support and F1-score are excluded to keep the table focused for the report draft.
     table_rows = []
     for row in test_metrics["class_metrics"]:
-        table_rows.append([
-            row["class"],
-            f"{row['precision']:.4f}",
-            f"{row['recall']:.4f}"
-        ])
+        table_rows.append([row["class"], f"{row['precision']:.4f}", f"{row['recall']:.4f}"])
 
     table_rows.append(["Macro Average", f"{test_metrics['macro_precision']:.4f}", f"{test_metrics['macro_recall']:.4f}"])
     table_rows.append(["Weighted Average", f"{test_metrics['weighted_precision']:.4f}", f"{test_metrics['weighted_recall']:.4f}"])
@@ -511,13 +464,7 @@ def plot_classification_metrics_table(test_metrics, title="Classification Metric
         title = f"Classification Metrics - Model: {hyperparameter_text}"
     ax.set_title(title, fontsize=12, pad=12)
 
-    table = ax.table(
-        cellText=table_rows,
-        colLabels=["Class", "Precision", "Recall"],
-        loc="center",
-        cellLoc="center",
-        colLoc="center"
-    )
+    table = ax.table(cellText=table_rows, colLabels=["Class", "Precision", "Recall"], loc="center", cellLoc="center", colLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1, 1.4)
@@ -631,44 +578,19 @@ def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_cla
     history = train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num)
     test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Final Test")
 
-    plot_training_losses(
-        history,
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Training_Validation_Loss.png"
-    )
-    plot_confusion_matrix_figure(
-        test_metrics,
-        class_names,
-        title="Confusion Matrix (Test Set)",
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Confusion_Matrix_Test_Set.png"
-    )
-    plot_classification_metrics_table(
-        test_metrics,
-        title="Classification Metrics (Test Set)",
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Classification_Metrics_Test_Set.png"
-    )
-    plot_final_summary_table(
-        history,
-        test_metrics,
-        title="Final Evaluation and Training Summary",
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Model_Summary_Metrics.png"
-    )
+    plot_training_losses(history, hyperparameter_text=hyperparameter_text, save_path="model_outputs/Training_Validation_Loss.png")
 
-    save_model_checkpoint(
-        model,
-        optimizer,
-        history,
-        test_metrics,
-        checkpoint_path=checkpoint_path,
-        channel_nums=channel_nums,
-        learning_rate=learning_rate,
-        epoch_num=epoch_num,
-        input_channel=input_channel,
-        n_classes=n_classes
-    )
+    plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Matrix (Test Set)", 
+                                 hyperparameter_text=hyperparameter_text, save_path="model_outputs/Confusion_Matrix_Test_Set.png")
+    
+    plot_classification_metrics_table(test_metrics, title="Classification Metrics (Test Set)",
+        hyperparameter_text=hyperparameter_text, save_path="model_outputs/Classification_Metrics_Test_Set.png")
+    
+    plot_final_summary_table(history, test_metrics, title="Final Evaluation and Training Summary",
+        hyperparameter_text=hyperparameter_text, save_path="model_outputs/Model_Summary_Metrics.png")
+    
+    save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_path=checkpoint_path, channel_nums=channel_nums,
+                          learning_rate=learning_rate, epoch_num=epoch_num, input_channel=input_channel,n_classes=n_classes)
     return 
 
 # This function is a wrapper for loading a saved model checkpoint and evaluating it on the test set. Mostly used for markers. Used in Main()
@@ -679,49 +601,26 @@ def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
     criterion = nn.CrossEntropyLoss()
     class_names = get_class_names(info, n_classes)
 
-    model = ResNet18(
-        input_channels=checkpoint["input_channel"],
-        channel_nums=checkpoint["channel_nums"],
-        n_classes=checkpoint["n_classes"]
-    ).to(device)
+    model = ResNet18(input_channels=checkpoint["input_channel"], channel_nums=checkpoint["channel_nums"], 
+                     n_classes=checkpoint["n_classes"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    test_metrics = evaluate(
-        model,
-        test_dataset,
-        criterion,
-        class_names=class_names,
-        show_report=True,
-        dataset_name="Loaded Model Test"
+    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Loaded Model Test")
+
+    hyperparameter_text = (f"Channels: {checkpoint['channel_nums']} |" f"Learning rate: {checkpoint['learning_rate']} | "f"Epochs: {checkpoint['epoch_num']}"
     )
 
-    hyperparameter_text = (
-        f"Channels: {checkpoint['channel_nums']} | "
-        f"Learning rate: {checkpoint['learning_rate']} | "
-        f"Epochs: {checkpoint['epoch_num']}"
-    )
+    plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Matrix (Loaded Model Test Set)",
+        hyperparameter_text=hyperparameter_text)
+    
+    plot_classification_metrics_table(test_metrics, title="Classification Metrics (Loaded Model Test Set)", 
+                                      hyperparameter_text=hyperparameter_text)
+    
+    plot_final_summary_table(checkpoint["history"], test_metrics, title="Final Evaluation and Training Summary (Loaded Model)",
+                             hyperparameter_text=hyperparameter_text)
+    
+    plot_training_losses(checkpoint["history"], hyperparameter_text=hyperparameter_text)
 
-    plot_confusion_matrix_figure(
-        test_metrics,
-        class_names,
-        title="Confusion Matrix (Loaded Model Test Set)",
-        hyperparameter_text=hyperparameter_text
-    )
-    plot_classification_metrics_table(
-        test_metrics,
-        title="Classification Metrics (Loaded Model Test Set)",
-        hyperparameter_text=hyperparameter_text
-    )
-    plot_final_summary_table(
-        checkpoint["history"],
-        test_metrics,
-        title="Final Evaluation and Training Summary (Loaded Model)",
-        hyperparameter_text=hyperparameter_text
-    )
-    plot_training_losses(
-        checkpoint["history"],
-        hyperparameter_text=hyperparameter_text
-    )
     return
 
 ########################################## Main Function with Hyperparameter Settings ##########################################
@@ -729,55 +628,41 @@ def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
 # This is the main function
 if __name__ == '__main__':
 
+    # TO MARKER: Change this to "test_model" to just run the pre-trained model to test the testing dataset and give evaluation metrics
+    # Otherwise: "train" re-trains the new model
+    RUN_MODE = "test_model"
+
     #### MAIN HYPERPARAMETERS FOR TUNING ####
     #
     # Each model has their own combination of hyperparameters.
     # This specific model is model [X].
     channel_nums = [16, 32, 64, 128]
     learning_rate = 1e-3
-    epoch_num = 5
-
-    # Change this one line only:
-    # "train" trains a new model. "test_saved_model" loads the checkpoint and evaluates once.
-    RUN_MODE = "test_model"
+    epoch_num = 2
 
     # Settings for data loading and preprocessing.
     BATCH_SIZE = 128
     DOWNLOAD = True
     SIZE = 28
 
-    # Training settings.
+    # Training settings
     CLIP = 1
     CHECKPOINT_PATH = "trained_models/Trained_Model.pth"
 
-    train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info = load_bloodmnist_data(
-        batch_size=BATCH_SIZE,
-        download=DOWNLOAD,
-        size=SIZE
-    )
-
+    # Load the BloodMNIST dataset for training, validation and testing.
+    # Also loads the number of classes and metadata information
+    train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info = load_bloodmnist_data(batch_size=BATCH_SIZE, 
+                                                                                                         download=DOWNLOAD, size=SIZE)
     if RUN_MODE == "train":
-        run_training_experiment(
-            train_dataset=train_dataset,
-            validate_dataset=validate_dataset,
-            test_dataset=test_dataset,
-            n_classes=n_classes,
-            input_channel=input_channel,
-            info=info,
-            channel_nums=channel_nums,
-            learning_rate=learning_rate,
-            epoch_num=epoch_num,
-            clip=CLIP,
-            checkpoint_path=CHECKPOINT_PATH
-        )
+        # Run the model training segmentation
+        run_training_experiment(train_dataset=train_dataset, validate_dataset=validate_dataset, test_dataset=test_dataset,
+                                n_classes=n_classes, input_channel=input_channel, info=info, channel_nums=channel_nums, 
+                                learning_rate=learning_rate, epoch_num=epoch_num, clip=CLIP, checkpoint_path=CHECKPOINT_PATH)
 
     elif RUN_MODE == "test_model":
-        test_saved_model(
-            checkpoint_path=CHECKPOINT_PATH,
-            test_dataset=test_dataset,
-            n_classes=n_classes,
-            info=info
-        )
+        # Just run the model testing for a fully trained model with hyperparameters defined in saved model entity
+        test_saved_model(checkpoint_path=CHECKPOINT_PATH, test_dataset=test_dataset, n_classes=n_classes, info=info)
 
     else:
+        # Syntaxing error handling
         raise ValueError('RUN_MODE must be either "train" or "test_model"')
