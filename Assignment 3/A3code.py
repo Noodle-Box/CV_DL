@@ -390,20 +390,6 @@ def evaluate(model, eval_dataset, criterion, class_names=None, show_report=False
                 "recall": recall
             })
 
-    if show_report:
-        print(f"\n{dataset_name} Metrics")
-        print(f"Loss: {running_loss / total:.4f}")
-        print(f"Accuracy: {100.0 * correct / total:.2f}%")
-        print(f"Macro Precision: {macro_precision:.4f}")
-        print(f"Weighted Precision: {weighted_precision:.4f}")
-        print(f"Macro Recall: {macro_recall:.4f}")
-        print(f"Weighted Recall: {weighted_recall:.4f}")
-        print("\nClassification Metrics by Class")
-        print("Class | Precision | Recall")
-        print("--------------------------")
-        for row in class_metrics:
-            print(f"{row['class']} | {row['precision']:.4f} | {row['recall']:.4f}")
-
     return {
         "loss": running_loss / total,
         "accuracy": 100.0 * correct / total,
@@ -419,7 +405,7 @@ def evaluate(model, eval_dataset, criterion, class_names=None, show_report=False
 
 ########################################## Figure and Table Generation of Evaluation Metrics #########################################
 
-
+# Plots the training and validation loss curves over epochs
 def plot_training_losses(history, hyperparameter_text=None, save_path=None):
     # Plot training and validation loss per epoch.
     # This graph is needed for the report discussion of underfitting and overfitting.
@@ -446,7 +432,7 @@ def plot_training_losses(history, hyperparameter_text=None, save_path=None):
 
     plt.show()
 
-
+# Plots the confusion matrix as a heatmap for class-specific performance ananlysis
 def plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Matrix (Test Set)", hyperparameter_text=None, save_path=None):
     # Plot the confusion matrix as a heatmap for class-level error analysis.
     # This helps identify which blood cell types are confused by the model.
@@ -503,7 +489,7 @@ def plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Mat
 
     plt.show()
 
-
+# Plots the precision and recall for class classification
 def plot_classification_metrics_table(test_metrics, title="Classification Metrics (Test Set)", hyperparameter_text=None, save_path=None):
     # Plot precision and recall as a table figure.
     # Support and F1-score are excluded to keep the table focused for the report draft.
@@ -553,7 +539,7 @@ def plot_classification_metrics_table(test_metrics, title="Classification Metric
 
     plt.show()
 
-
+# Plots overall model metrics in table
 def plot_final_summary_table(history, test_metrics, title="Model Summary Metrics", hyperparameter_text=None, save_path=None):
     # Plot final test metrics and best training/validation metrics in one table.
     # This table is intended for quick comparison between trained model variants.
@@ -609,33 +595,9 @@ def plot_final_summary_table(history, test_metrics, title="Model Summary Metrics
 
     plt.show()
 
+########################################### Saving the Model and Wrapper Functions for Main ################################################
 
-def print_accuracy_table(history, test_metrics):
-    # Print training and validation accuracy in a table.
-    # The final test accuracy is printed separately because it is only evaluated after training.
-    print("\nAccuracy Table")
-    print("Epoch | Training Accuracy (%) | Validation Accuracy (%)")
-    print("-------------------------------------------------------")
-
-    for epoch, (train_acc, validate_acc) in enumerate(
-        zip(history["train_accuracy"], history["validate_accuracy"]),
-        start=1
-    ):
-        print(f"{epoch:5d} | {train_acc:21.2f} | {validate_acc:23.2f}")
-
-    print("-------------------------------------------------------")
-    print(f"Final Test Accuracy (%): {test_metrics['accuracy']:.2f}")
-    print(f"Final Test Loss: {test_metrics['loss']:.4f}")
-    print(f"Final Test Macro Precision: {test_metrics['macro_precision']:.4f}")
-    print(f"Final Test Weighted Precision: {test_metrics['weighted_precision']:.4f}")
-    print(f"Final Test Macro Recall: {test_metrics['macro_recall']:.4f}")
-    print(f"Final Test Weighted Recall: {test_metrics['weighted_recall']:.4f}")
-    print(f"Total Training Time (seconds): {history['training_time_seconds']:.2f}")
-
-################################################# Saving and Testing the Trained Model ################################################
-
-
-
+# This function saves the model entity after training such that it can be reloaded later for testing without retraining. 
 def save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_path, channel_nums, learning_rate, epoch_num, input_channel, n_classes):
     # Save the trained model and experiment settings.
     # The checkpoint lets assessors reload the model and evaluate it without retraining.
@@ -655,7 +617,61 @@ def save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_pa
 
     print(f"Model checkpoint saved to: {checkpoint_path}")
 
+# This function is a wrapper for running the full training experiment. Used in Main()
+def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info, channel_nums, learning_rate, epoch_num, clip, checkpoint_path):
+    # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
+    # Use this mode when training a fresh hyperparameter experiment.
+    class_names = get_class_names(info, n_classes)
+    hyperparameter_text = f"Channels: {channel_nums} | Learning rate: {learning_rate} | Epochs: {epoch_num}"
 
+    model = ResNet18(input_channels=input_channel, channel_nums=channel_nums, n_classes=n_classes).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    history = train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num)
+    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Final Test")
+
+    plot_training_losses(
+        history,
+        hyperparameter_text=hyperparameter_text,
+        save_path="model_outputs/Training_Validation_Loss.png"
+    )
+    plot_confusion_matrix_figure(
+        test_metrics,
+        class_names,
+        title="Confusion Matrix (Test Set)",
+        hyperparameter_text=hyperparameter_text,
+        save_path="model_outputs/Confusion_Matrix_Test_Set.png"
+    )
+    plot_classification_metrics_table(
+        test_metrics,
+        title="Classification Metrics (Test Set)",
+        hyperparameter_text=hyperparameter_text,
+        save_path="model_outputs/Classification_Metrics_Test_Set.png"
+    )
+    plot_final_summary_table(
+        history,
+        test_metrics,
+        title="Final Evaluation and Training Summary",
+        hyperparameter_text=hyperparameter_text,
+        save_path="model_outputs/Model_Summary_Metrics.png"
+    )
+
+    save_model_checkpoint(
+        model,
+        optimizer,
+        history,
+        test_metrics,
+        checkpoint_path=checkpoint_path,
+        channel_nums=channel_nums,
+        learning_rate=learning_rate,
+        epoch_num=epoch_num,
+        input_channel=input_channel,
+        n_classes=n_classes
+    )
+    return 
+
+# This function is a wrapper for loading a saved model checkpoint and evaluating it on the test set. Mostly used for markers. Used in Main()
 def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
     # Load a saved model checkpoint and run final evaluation on the test dataset.
     # This function is for reproducibility without rerunning the full training process.
@@ -706,67 +722,9 @@ def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
         checkpoint["history"],
         hyperparameter_text=hyperparameter_text
     )
-
-    return test_metrics
-
-def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info, channel_nums, learning_rate, epoch_num, clip, checkpoint_path):
-    # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
-    # Use this mode when training a fresh hyperparameter experiment.
-    class_names = get_class_names(info, n_classes)
-    hyperparameter_text = f"Channels: {channel_nums} | Learning rate: {learning_rate} | Epochs: {epoch_num}"
-
-    model = ResNet18(input_channels=input_channel, channel_nums=channel_nums, n_classes=n_classes).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    history = train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num)
-    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Final Test")
-
-    plot_training_losses(
-        history,
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Training_Validation_Loss.png"
-    )
-    plot_confusion_matrix_figure(
-        test_metrics,
-        class_names,
-        title="Confusion Matrix (Test Set)",
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Confusion_Matrix_Test_Set.png"
-    )
-    plot_classification_metrics_table(
-        test_metrics,
-        title="Classification Metrics (Test Set)",
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Classification_Metrics_Test_Set.png"
-    )
-    plot_final_summary_table(
-        history,
-        test_metrics,
-        title="Final Evaluation and Training Summary",
-        hyperparameter_text=hyperparameter_text,
-        save_path="model_outputs/Model_Summary_Metrics.png"
-    )
-    print_accuracy_table(history, test_metrics)
-
-    save_model_checkpoint(
-        model,
-        optimizer,
-        history,
-        test_metrics,
-        checkpoint_path=checkpoint_path,
-        channel_nums=channel_nums,
-        learning_rate=learning_rate,
-        epoch_num=epoch_num,
-        input_channel=input_channel,
-        n_classes=n_classes
-    )
-
-    return history, test_metrics
-
+    return
 
 ########################################## Main Function with Hyperparameter Settings ##########################################
-
 
 # This is the main function
 if __name__ == '__main__':
@@ -799,7 +757,7 @@ if __name__ == '__main__':
     )
 
     if RUN_MODE == "train":
-        history, test_metrics = run_training_experiment(
+        run_training_experiment(
             train_dataset=train_dataset,
             validate_dataset=validate_dataset,
             test_dataset=test_dataset,
@@ -814,7 +772,7 @@ if __name__ == '__main__':
         )
 
     elif RUN_MODE == "test_model":
-        loaded_test_metrics = test_saved_model(
+        test_saved_model(
             checkpoint_path=CHECKPOINT_PATH,
             test_dataset=test_dataset,
             n_classes=n_classes,
