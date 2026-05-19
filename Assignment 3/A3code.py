@@ -679,97 +679,50 @@ def load_bloodmnist_data(batch_size, download, size):
 
     return train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info
 
-########################################## Main Function for Data Loading, Training, and Testing ##########################################
+def get_class_names(info, n_classes):
+    # Convert the MedMNIST label dictionary into an ordered class-name list.
+    # This is used for metric tables and confusion matrix legends.
+    return [info["label"][str(i)] for i in range(n_classes)]
 
 
-# This is the main function
-if __name__ == '__main__':
 
-    #### MAIN HYPEYPARAMETERS FOR TUNING #### 
-    #
-    # Each model has their own combination of hyperparameters
-    # This specific model is model [X]
-    channel_nums = [16, 32, 64, 128]
-    learning_rate = 1e-3
-    epoch_num = 5
+def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info, channel_nums, learning_rate, epoch_num, clip, checkpoint_path):
+    # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
+    # Use this mode when training a fresh hyperparameter experiment.
+    class_names = get_class_names(info, n_classes)
+    hyperparameter_text = f"Channels: {channel_nums} | Learning rate: {learning_rate} | Epochs: {epoch_num}"
 
-    # Settings for data loading and preprocessing
-    BATCH_SIZE = 128  # Set the batch size to 128 (i.e., 128 samples in a batch)
-    DOWNLOAD = True   # Set download to True to download the dataset if you don't have it in your local directory
-    SIZE = 28         # Set the image size to 28 (i.e., 28x28 pixels)
-
-    # Tunng settings
-    CLIP = 1
-
-    # Settings for 
-    train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info = load_bloodmnist_data(batch_size=BATCH_SIZE, download=DOWNLOAD, size=SIZE)
-
-    ########################################################## ######################################################################
-
-    # Number of channels (i.e., C1, C2, C3, C4 in Figure 1 of the assignment task sheet). This is the hyperparameter that you need to determine
-    # YOU NEED TO FIND THE OPTIMUM NUMBER OF CHANNELS IN YOUR ASSIGNMENT
-    # Hint: Consider the three possible sets [8, 16, 32, 64], [32, 64, 128, 256], and [64, 128, 256, 512]
-
-    # Create an instance of the neural network, and put it on GPU.
-    # Note for markers: I have an RTX5070 GPU so I'll be training it locally
-    # channel_nums is passed into ResNet18 so different [C1, C2, C3, C4] settings can be tested as hyperparameter experiments.
     model = ResNet18(input_channels=input_channel, channel_nums=channel_nums, n_classes=n_classes).to(device)
-
-    # We use CrossEntropyLoss function in our multi-class task
     criterion = nn.CrossEntropyLoss()
-
-    # We clip the gradient to avoid the gradient explosion
-    # Use torch.nn.utils.clip_grad_norm_(model.parameters(), clip) in your training function to implement this gradient clip (by setting clip=1, we clip the gradient during the training)
-
-    ########################################################## ######################################################################
-
-    # Learning rate is initially set as 1e-4. This is another hyperparameter that you need to determine
-    # YOU NEED TO FIND THE OPTIMUM LEARNING RATE IN YOUR ASSIGNMENT
-    # Hint: Consider 1e-3 and 1e-5 in addition to the initial one
-    
-    ########################################################## ######################################################################
-    # We use ADAM as our optimizer
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-
-
-    # Train the model and store training/validation loss and accuracy histories.
-    # These histories are used for the report loss curves and accuracy tables.
-    history = train(model, train_dataset, validate_dataset, optimizer, criterion, CLIP, epoch_num)
-    plot_training_losses(history)
-
-########################################################## ######################################################################
-    # Evaluate the trained model on the held-out test set after all tuning decisions.
-    # The test set should not be used to choose hyperparameters.
-    class_names = [info["label"][str(i)] for i in range(n_classes)]
-    test_metrics = evaluate(model,test_dataset, criterion, class_names=class_names, show_report=True,dataset_name="Final Test")
-    
-    experiment_name = f"channels_{'-'.join(map(str, channel_nums))}_lr_{learning_rate:.0e}_epochs_{epoch_num}"
-    hyperparameter_text = f"Channels: {channel_nums} | Learning rate: {learning_rate} | Epochs: {epoch_num}"
+    history = train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num)
+    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names, show_report=True, dataset_name="Final Test")
 
     plot_training_losses(
         history,
         hyperparameter_text=hyperparameter_text,
-        save_path=f"model_outputs/{experiment_name}_training_validation_loss.png"
+        save_path="model_outputs/Training_Validation_Loss.png"
     )
-    plot_confusion_matrix_figure(test_metrics,
+    plot_confusion_matrix_figure(
+        test_metrics,
         class_names,
         title="Confusion Matrix (Test Set)",
         hyperparameter_text=hyperparameter_text,
-        save_path=f"model_outputs/{experiment_name}_confusion_matrix.png"
+        save_path="model_outputs/Confusion_Matrix_Test_Set.png"
     )
     plot_classification_metrics_table(
         test_metrics,
         title="Classification Metrics (Test Set)",
         hyperparameter_text=hyperparameter_text,
-        save_path=f"model_outputs/{experiment_name}_classification_metrics.png"
+        save_path="model_outputs/Classification_Metrics_Test_Set.png"
     )
     plot_final_summary_table(
         history,
         test_metrics,
         title="Final Evaluation and Training Summary",
         hyperparameter_text=hyperparameter_text,
-        save_path=f"model_outputs/{experiment_name}_summary_metrics.png"
+        save_path="model_outputs/Model_Summary_Metrics.png"
     )
     print_accuracy_table(history, test_metrics)
 
@@ -778,7 +731,7 @@ if __name__ == '__main__':
         optimizer,
         history,
         test_metrics,
-        checkpoint_path=f"trained_models/{experiment_name}.pth",
+        checkpoint_path=checkpoint_path,
         channel_nums=channel_nums,
         learning_rate=learning_rate,
         epoch_num=epoch_num,
@@ -786,12 +739,78 @@ if __name__ == '__main__':
         n_classes=n_classes
     )
 
-    # If you do not want to retrain the full model, comment out the training section above
-    # and uncomment this block to load a saved checkpoint and evaluate the test set once.
+    return history, test_metrics
+
+
+def run_saved_model_evaluation(test_dataset, n_classes, info, checkpoint_path):
+    # Load an existing checkpoint and evaluate the test set once.
+    # Use this mode when you do not want to retrain the model.
+    criterion = nn.CrossEntropyLoss()
+    class_names = get_class_names(info, n_classes)
+
+    return test_saved_model(
+        checkpoint_path=checkpoint_path,
+        test_dataset=test_dataset,
+        criterion=criterion,
+        class_names=class_names
+    )
+
+
+########################################## Main Function for Data Loading, Training, and Testing ##########################################
+
+
+# This is the main function
+if __name__ == '__main__':
+
+    #### MAIN HYPERPARAMETERS FOR TUNING ####
     #
-    # loaded_test_metrics = test_saved_model(
-    #     checkpoint_path=f"trained_models/{experiment_name}.pth",
-    #     test_dataset=test_dataset,
-    #     criterion=criterion,
-    #     class_names=class_names
-    # )
+    # Each model has their own combination of hyperparameters.
+    # This specific model is model [X].
+    channel_nums = [16, 32, 64, 128]
+    learning_rate = 1e-3
+    epoch_num = 5
+
+    # Change this one line only:
+    # "train" trains a new model. "test_saved_model" loads the checkpoint and evaluates once.
+    RUN_MODE = "test_model"
+
+    # Settings for data loading and preprocessing.
+    BATCH_SIZE = 128
+    DOWNLOAD = True
+    SIZE = 28
+
+    # Training settings.
+    CLIP = 1
+    CHECKPOINT_PATH = "trained_models/Trained_Model.pth"
+
+    train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info = load_bloodmnist_data(
+        batch_size=BATCH_SIZE,
+        download=DOWNLOAD,
+        size=SIZE
+    )
+
+    if RUN_MODE == "train":
+        history, test_metrics = run_training_experiment(
+            train_dataset=train_dataset,
+            validate_dataset=validate_dataset,
+            test_dataset=test_dataset,
+            n_classes=n_classes,
+            input_channel=input_channel,
+            info=info,
+            channel_nums=channel_nums,
+            learning_rate=learning_rate,
+            epoch_num=epoch_num,
+            clip=CLIP,
+            checkpoint_path=CHECKPOINT_PATH
+        )
+
+    elif RUN_MODE == "test_model":
+        loaded_test_metrics = run_saved_model_evaluation(
+            test_dataset=test_dataset,
+            n_classes=n_classes,
+            info=info,
+            checkpoint_path=CHECKPOINT_PATH
+        )
+
+    else:
+        raise ValueError('RUN_MODE must be either "train" or "test_model"')
