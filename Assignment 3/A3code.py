@@ -449,6 +449,15 @@ def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
 
     plt.show()
 
+# Converts training time from seconds to hours and minutes
+def format_train_time(train_time_seconds):
+    # The raw time is stored in seconds, but long training runs are easier to read in hours and minutes.
+    total_minutes = int(train_time_seconds // 60)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    return f"{hours} hours, {minutes} minutes"
+
+
 # Plots overall model metrics in table
 def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
     # Plot final test metrics and best training/validation metrics in one table.
@@ -461,7 +470,7 @@ def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
         ["Final Test Weighted Precision", f"{test_metrics['weight_precision']:.4f}"],
         ["Final Test Macro Recall", f"{test_metrics['macro_recall']:.4f}"],
         ["Final Test Weighted Recall", f"{test_metrics['weight_recall']:.4f}"],
-        ["Total Training Time (seconds)", f"{history['train time (s)']:.2f}"],
+        ["Total Training Time (hours, minutes)", format_train_time(history["train time (s)"])],
         ["", ""],
         ["Training Metrics", "Value (%)"],
         ["Lowest Training Loss", f"{min(history['train_loss']):.4f}"],
@@ -587,7 +596,7 @@ if __name__ == '__main__':
     # This specific model is model [X].
     HyperParam_Channels = [16, 32, 64, 128]
     HyperParam_LR = 1e-3
-    HyperParam_Epochs = 5
+    HyperParam_Epochs = 20
 
     # Settings for data loading and preprocessing.
     BATCH_SIZE = 128
