@@ -57,13 +57,13 @@ class ResidualBlock(nn.Module):
 # Building the ResNet-18 architecture. 
 class ResNet18(nn.Module):
 
-    def __init__(self, input_channels=3, channel_nums=None, n_classes=8):
+    def __init__(self, input_channels=3, num_channels=None, class_num=8):
         super(ResNet18, self).__init__()
 
-        if len(channel_nums) != 4:
-            raise ValueError("channel_nums must contain four values: [C1, C2, C3, C4]")
-        self.channel_nums = channel_nums
-        c1, c2, c3, c4 = self.channel_nums
+        if len(num_channels) != 4:
+            raise ValueError("num_channels must contain four values: [C1, C2, C3, C4]")
+        self.num_channels = num_channels
+        c1, c2, c3, c4 = self.num_channels
 
         # Initial layer:
         # Conv2d 7x7 stride 2 padding 3 -> BatchNorm2d -> ReLU -> MaxPool2d 7x7 stride 2 padding 1.
@@ -78,25 +78,10 @@ class ResNet18(nn.Module):
         # BatchNorm2d stabilizes the C1 feature maps before ReLU, and MaxPool2d follows
         # the task sheet exactly. With a 28x28 input image, the output shape becomes
         # [batch_size, C1, 5, 5].
-        self.initial = nn.Sequential(
-            nn.Conv2d(
-                in_channels=input_channels,
-                out_channels=c1,
-                kernel_size=(7, 7),
-                stride=2,
-                padding=3,
-                dilation=1,
-                bias=False
-            ),
-            nn.BatchNorm2d(c1),
-            self.relu,
-            nn.MaxPool2d(
-                kernel_size=(7, 7),
-                stride=2,
-                padding=1,
-                dilation=1
-            )
-        )
+        self.initial = nn.Sequential(nn.Conv2d(in_channels=input_channels, out_channels=c1, kernel_size=(7, 7), 
+                                               stride=2, padding=3, dilation=1, bias=False), 
+                                               nn.BatchNorm2d(c1), self.relu, 
+                                               nn.MaxPool2d(kernel_size=(7, 7), stride=2, padding=1, dilation=1))
 
         # Residual block cascade:
         # Group 1: two Residual Block-I modules using C1.
@@ -134,11 +119,7 @@ class ResNet18(nn.Module):
         # The first linear layer reduces the C4 feature vector to C4/2 features.
         # The ReLU adds non-linearity before the final linear layer maps features to
         # the 8 BloodMNIST class logits. Softmax is not used here because nn.CrossEntropyLoss expects raw logits.
-        self.fully_connected = nn.Sequential(
-            nn.Linear(c4, c4 // 2),
-            nn.ReLU(inplace=True),
-            nn.Linear(c4 // 2, n_classes)
-        )
+        self.fully_connected = nn.Sequential(nn.Linear(c4, c4 // 2), nn.ReLU(inplace=True), nn.Linear(c4 // 2, class_num))
 
     def forward(self, x):
         # Pass the BloodMNIST image batch through the initial feature extractor.
@@ -159,7 +140,7 @@ class ResNet18(nn.Module):
 
 # Main function to load the datasets for model training, validation (parameter tuning) and testing
 # This function returns the metadata and the dataloader structures. Used in main 
-def load_bloodmnist_data(batch_size, download, size):
+def LoadDataBloodMNIST(batch_size, download, size):
 
     # We utilize the "BloodMNIST" dataset in the "MedMNIST2D" category.
     #
@@ -188,7 +169,7 @@ def load_bloodmnist_data(batch_size, download, size):
     data_type = 'bloodmnist'
     info = INFO[data_type]
 
-    n_classes = len(info['label'])         # Extract the number of classes in this dataset
+    class_num = len(info['label'])         # Extract the number of classes in this dataset
     input_channel = info['n_channels']     # Extract the number of channels in each image sample (BloodMNIST has images with 3 color channels)
 
     DataClass = getattr(medmnist, info['python_class'])
@@ -201,14 +182,11 @@ def load_bloodmnist_data(batch_size, download, size):
     #
     # 2. Normalize the data.
     # Set the mean and standard deviation to 0.5 to map pixel values from [0, 1] to [-1, 1]
-    data_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
+    data_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
 
-    train_data = DataClass(split='train', transform=data_transform, download=download, size=size)
-    validate_data = DataClass(split='val', transform=data_transform, download=download, size=size)
-    test_data = DataClass(split='test', transform=data_transform, download=download, size=size)
+    DataTRAIN = DataClass(split='train', transform=data_transform, download=download, size=size)
+    DataVALIDATE = DataClass(split='val', transform=data_transform, download=download, size=size)
+    DataTEST = DataClass(split='test', transform=data_transform, download=download, size=size)
 
     # Confirm that all official BloodMNIST splits were loaded.
     print("BloodMNIST dataset loaded successfully.")
@@ -216,18 +194,18 @@ def load_bloodmnist_data(batch_size, download, size):
     # Put the training and testing datasets in dataloader structures. 
     # You will use the dataloaders in your training and testing functions to visit each sample of the batch.
     pin_memory = device.type == "cuda"
-    train_dataset = data.DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
-    validate_dataset = data.DataLoader(dataset=validate_data, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
-    test_dataset = data.DataLoader(dataset=test_data, batch_size=1, shuffle=False, pin_memory=pin_memory)
+    DataTRAIN_Set = data.DataLoader(dataset=DataTRAIN, batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
+    DataVAL_Set = data.DataLoader(dataset=DataVALIDATE, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
+    DataTEST_Set = data.DataLoader(dataset=DataTEST, batch_size=1, shuffle=False, pin_memory=pin_memory)
 
-    return train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info
+    return DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, input_channel, info
 
 
 # Helper function to get the class names from dataset information. thought i'd write this rather than just hardcoding the class names in
-def get_class_names(info, n_classes):
+def get_class_names(info, class_num):
     # Convert the MedMNIST label dictionary into an ordered class-name list.
     # Used for metric tables and confusion matrix legends.
-    return [info["label"][str(i)] for i in range(n_classes)]
+    return [info["label"][str(i)] for i in range(class_num)]
 
 
 ################################################## RNN Training Functionality ########################################################
@@ -235,15 +213,15 @@ def get_class_names(info, n_classes):
 # Main training functionality that uses the training dataset and validation dataset for evaluation. 
 # Uses back propagation to update model weights
 # Returns training history for metrics. Used in Main()
-def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num):
+def train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_num):
     # Train the model and validate it after each epoch.
     # This returns the loss and accuracy history needed for report tables and curves.
     history = {
         "train_loss": [],
-        "validate_loss": [],
-        "train_accuracy": [],
-        "validate_accuracy": [],
-        "training_time_seconds": 0.0
+        "val_loss": [],
+        "train_acc": [],
+        "val_acc": [],
+        "train time (s)": 0.0
     }
 
     start_time = time.time()
@@ -251,11 +229,11 @@ def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, ep
     for epoch in range(epoch_num):
         model.train()
 
-        running_loss = 0.0
+        run_loss = 0.0
         correct = 0
         total = 0
 
-        for images, labels in train_dataset:
+        for images, labels in DataTRAIN_Set:
             images = images.to(device, non_blocking=True)
             labels = labels.view(-1).long().to(device, non_blocking=True)
 
@@ -269,30 +247,30 @@ def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, ep
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
             optimizer.step()
 
-            running_loss += loss.item() * images.size(0)
+            run_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
-        train_loss = running_loss / total
-        train_accuracy = 100.0 * correct / total
+        train_loss = run_loss / total
+        train_acc = 100.0 * correct / total
 
-        validate_metrics = evaluate(model, validate_dataset, criterion)
-        validate_loss = validate_metrics["loss"]
-        validate_accuracy = validate_metrics["accuracy"]
+        val_metric = evaluate(model, DataVAL_Set, criterion)
+        val_loss = val_metric["loss"]
+        val_acc = val_metric["accuracy"]
 
         history["train_loss"].append(train_loss)
-        history["validate_loss"].append(validate_loss)
-        history["train_accuracy"].append(train_accuracy)
-        history["validate_accuracy"].append(validate_accuracy)
+        history["val_loss"].append(val_loss)
+        history["train_acc"].append(train_acc)
+        history["val_acc"].append(val_acc)
 
         print(
             f"Epoch [{epoch + 1}/{epoch_num}] "
-            f"Train Loss: {train_loss:.4f} | Train Acc: {train_accuracy:.2f}% | "
-            f"Val Loss: {validate_loss:.4f} | Val Acc: {validate_accuracy:.2f}%"
+            f"Training Loss: {train_loss:.4f} | Training Acc: {train_acc:.2f}% | "
+            f"Validation Loss: {val_loss:.4f} | Validation Acc: {val_acc:.2f}%"
         )
 
-    history["training_time_seconds"] = time.time() - start_time
+    history["train time (s)"] = time.time() - start_time
     return history
 
 ################################################## RNN Evaluation Functionality ######################################################
@@ -300,91 +278,84 @@ def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, ep
 # Evaluates model without updating weights
 # Produces output metrics used for evaluation figures and tables.
 # Used in both model validation during training and final test evaluation.
-def evaluate(model, eval_dataset, criterion, class_names=None):
+def evaluate(model, eDataVAL_Set, criterion, class_names=None):
 
     model.eval()
 
-    running_loss = 0.0
+    run_loss = 0.0
     correct = 0
     total = 0
     all_labels = []
-    all_predictions = []
+    all_preds = []
 
     with torch.no_grad():
-        for images, labels in eval_dataset:
+        for images, labels in eDataVAL_Set:
             images = images.to(device, non_blocking=True)
             labels = labels.view(-1).long().to(device, non_blocking=True)
 
             outputs = model(images)
             loss = criterion(outputs, labels)
 
-            running_loss += loss.item() * images.size(0)
+            run_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
             all_labels.extend(labels.detach().cpu().numpy())
-            all_predictions.extend(predicted.detach().cpu().numpy())
+            all_preds.extend(predicted.detach().cpu().numpy())
 
     all_labels = np.array(all_labels)
-    all_predictions = np.array(all_predictions)
-    labels_for_report = list(range(len(class_names))) if class_names is not None else None
+    all_preds = np.array(all_preds)
+    report_labels = list(range(len(class_names))) if class_names is not None else None
 
     # Classification metrics show class-level performance beyond overall accuracy.
     # zero_division=0 avoids warnings when an untrained model predicts no samples for a class.
-    conf_matrix = confusion_matrix(all_labels, all_predictions, labels=labels_for_report)
+    conf_matrix = confusion_matrix(all_labels, all_preds, labels=report_labels)
+    class_precision = metrics.precision_score(all_labels, all_preds, labels=report_labels, average=None, zero_division=0)
+    class_recall = metrics.recall_score(all_labels, all_preds, labels=report_labels, average=None, zero_division=0)
+    macro_precision = metrics.precision_score(all_labels, all_preds, labels=report_labels, average="macro", zero_division=0)
+    weight_precision = metrics.precision_score(all_labels, all_preds, labels=report_labels, average="weighted", zero_division=0)
+    macro_recall = metrics.recall_score(all_labels, all_preds, labels=report_labels, average="macro", zero_division=0)
+    weight_recall = metrics.recall_score(all_labels, all_preds, labels=report_labels, average="weighted", zero_division=0)
 
-    per_class_precision = metrics.precision_score(all_labels, all_predictions, labels=labels_for_report, average=None, zero_division=0)
-
-    per_class_recall = metrics.recall_score(all_labels, all_predictions, labels=labels_for_report, average=None, zero_division=0)
-
-    macro_precision = metrics.precision_score(all_labels, all_predictions, labels=labels_for_report, average="macro", zero_division=0)
-
-    weighted_precision = metrics.precision_score(all_labels, all_predictions, labels=labels_for_report, average="weighted", zero_division=0)
-
-    macro_recall = metrics.recall_score(all_labels, all_predictions, labels=labels_for_report, average="macro", zero_division=0)
-
-    weighted_recall = metrics.recall_score(all_labels, all_predictions, labels=labels_for_report, average="weighted", zero_division=0)
-
-    class_metrics = []
+    class_metric = []
     if class_names is not None:
-        for class_name, precision, recall in zip(class_names, per_class_precision, per_class_recall):
-            class_metrics.append({
+        for class_name, precision, recall in zip(class_names, class_precision, class_recall):
+            class_metric.append({
                 "class": class_name,
                 "precision": precision,
                 "recall": recall
             })
 
     return {
-        "loss": running_loss / total,
+        "loss": run_loss / total,
         "accuracy": 100.0 * correct / total,
         "macro_precision": macro_precision,
-        "weighted_precision": weighted_precision,
+        "weight_precision": weight_precision,
         "macro_recall": macro_recall,
-        "weighted_recall": weighted_recall,
-        "class_metrics": class_metrics,
+        "weight_recall": weight_recall,
+        "class_metric": class_metric,
         "confusion_matrix": conf_matrix,
         "labels": all_labels,
-        "predictions": all_predictions
+        "predictions": all_preds
     }
 
 ########################################## Figure and Table Generation of Evaluation Metrics #########################################
 
+
 # Plots the training and validation loss curves over epochs
-def plot_training_losses(history, hyperparameter_text=None, save_path=None):
+def plt_TrainingLoss(history, param_text=None, save_path=None):
     # Plot training and validation loss per epoch.
     # This graph is needed for the report discussion of underfitting and overfitting.
     epochs = range(1, len(history["train_loss"]) + 1)
 
     fig, ax = plt.subplots(figsize=(8, 5))
+    title = f"Training and Validation Loss - Model: {param_text}"
+    ax.set_title(title, fontsize=11, fontweight="bold")
     ax.plot(epochs, history["train_loss"], label="Training Loss")
-    ax.plot(epochs, history["validate_loss"], label="Validation Loss")
+    ax.plot(epochs, history["val_loss"], label="Validation Loss")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
-    title = "Training and Validation Loss per Epoch"
-    if hyperparameter_text is not None:
-        title = f"Training and Validation Loss - Model: {hyperparameter_text}"
-    ax.set_title(title, fontsize=11, fontweight="bold")
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
@@ -398,13 +369,14 @@ def plot_training_losses(history, hyperparameter_text=None, save_path=None):
     plt.show()
 
 # Plots the confusion matrix as a heatmap for class-specific performance ananlysis
-def plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Matrix (Test Set)", hyperparameter_text=None, save_path=None):
+def plt_ConfMatrix(test_metrics, class_names, param_text=None, save_path=None):
     # Plot the confusion matrix as a heatmap for class-level error analysis.
     # This helps identify which blood cell types are confused by the model.
     conf_matrix = test_metrics["confusion_matrix"]
 
     fig, ax = plt.subplots(figsize=(12, 9))
     image = ax.imshow(conf_matrix, interpolation="nearest", cmap=plt.cm.Blues)
+    title = f"Confusion Matrix - Model: {param_text}"
     ax.set_title(title, fontweight="bold")
     fig.colorbar(image, ax=ax)
 
@@ -428,9 +400,6 @@ def plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Mat
     fig.text(0.02, 0.03, legend_text, fontsize=9, va="bottom", ha="left", 
              bbox={"facecolor": "white", "edgecolor": "black", "boxstyle": "round,pad=0.4"})
 
-    if hyperparameter_text is not None:
-        fig.text(0.5, 0.96, f"Model: {hyperparameter_text}", ha="center", fontsize=10, fontweight="bold")
-
     fig.subplots_adjust(left=0.28, right=0.92, top=0.88, bottom=0.24)
 
     if save_path is not None:
@@ -442,21 +411,20 @@ def plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Mat
     plt.show()
 
 # Plots the precision and recall for class classification
-def plot_classification_metrics_table(test_metrics, title="Classification Metrics (Test Set)", hyperparameter_text=None, save_path=None):
+def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
     # Plot precision and recall as a table figure.
     # Support and F1-score are excluded to keep the table focused for the report draft.
     table_rows = []
-    for row in test_metrics["class_metrics"]:
+    for row in test_metrics["class_metric"]:
         table_rows.append([row["class"], f"{row['precision']:.4f}", f"{row['recall']:.4f}"])
 
     table_rows.append(["Macro Average", f"{test_metrics['macro_precision']:.4f}", f"{test_metrics['macro_recall']:.4f}"])
-    table_rows.append(["Weighted Average", f"{test_metrics['weighted_precision']:.4f}", f"{test_metrics['weighted_recall']:.4f}"])
+    table_rows.append(["Weighted Average", f"{test_metrics['weight_precision']:.4f}", f"{test_metrics['weight_recall']:.4f}"])
 
     fig_height = 0.5 * len(table_rows) + 1.5
     fig, ax = plt.subplots(figsize=(11, fig_height))
     ax.axis("off")
-    if hyperparameter_text is not None:
-        title = f"Classification Metrics - Model: {hyperparameter_text}"
+    title = f"Classification Metrics - Model: {param_text}"
     ax.set_title(title, fontsize=12, pad=12)
 
     table = ax.table(cellText=table_rows, colLabels=["Class", "Precision", "Recall"], loc="center", cellLoc="center", colLoc="center")
@@ -482,7 +450,7 @@ def plot_classification_metrics_table(test_metrics, title="Classification Metric
     plt.show()
 
 # Plots overall model metrics in table
-def plot_final_summary_table(history, test_metrics, title="Model Summary Metrics", hyperparameter_text=None, save_path=None):
+def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
     # Plot final test metrics and best training/validation metrics in one table.
     # This table is intended for quick comparison between trained model variants.
     table_rows = [
@@ -490,22 +458,21 @@ def plot_final_summary_table(history, test_metrics, title="Model Summary Metrics
         ["Final Test Accuracy (%)", f"{test_metrics['accuracy']:.2f}"],
         ["Final Test Loss", f"{test_metrics['loss']:.4f}"],
         ["Final Test Macro Precision", f"{test_metrics['macro_precision']:.4f}"],
-        ["Final Test Weighted Precision", f"{test_metrics['weighted_precision']:.4f}"],
+        ["Final Test Weighted Precision", f"{test_metrics['weight_precision']:.4f}"],
         ["Final Test Macro Recall", f"{test_metrics['macro_recall']:.4f}"],
-        ["Final Test Weighted Recall", f"{test_metrics['weighted_recall']:.4f}"],
-        ["Total Training Time (seconds)", f"{history['training_time_seconds']:.2f}"],
+        ["Final Test Weighted Recall", f"{test_metrics['weight_recall']:.4f}"],
+        ["Total Training Time (seconds)", f"{history['train time (s)']:.2f}"],
         ["", ""],
         ["Training Metrics", "Value (%)"],
         ["Lowest Training Loss", f"{min(history['train_loss']):.4f}"],
-        ["Highest Training Accuracy (%)", f"{max(history['train_accuracy']):.2f}"],
-        ["Lowest Validation Loss", f"{min(history['validate_loss']):.4f}"],
-        ["Highest Validation Accuracy (%)", f"{max(history['validate_accuracy']):.2f}"]
+        ["Highest Training Accuracy (%)", f"{max(history['train_acc']):.2f}"],
+        ["Lowest Validation Loss", f"{min(history['val_loss']):.4f}"],
+        ["Highest Validation Accuracy (%)", f"{max(history['val_acc']):.2f}"]
     ]
 
     fig, ax = plt.subplots(figsize=(10, 7))
     ax.axis("off")
-    if hyperparameter_text is not None:
-        title = f"Model Summary Metrics - Model: {hyperparameter_text}"
+    title = f"Model Summary Metrics - Model: {param_text}"
     ax.set_title(title, fontsize=12, fontweight="bold", pad=12)
 
     table = ax.table(
@@ -540,7 +507,7 @@ def plot_final_summary_table(history, test_metrics, title="Model Summary Metrics
 ########################################### Saving the Model and Wrapper Functions for Main ################################################
 
 # This function saves the model entity after training such that it can be reloaded later for testing without retraining. 
-def save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_path, channel_nums, learning_rate, epoch_num, input_channel, n_classes):
+def ModelSave(model, optimizer, history, test_metrics, checkpoint_path, num_channels, learn_rate, epoch_num, channel_in, class_num):
     # Save the trained model and experiment settings.
     # The checkpoint lets assessors reload the model and evaluate it without retraining.
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
@@ -550,71 +517,58 @@ def save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_pa
         "optimizer_state_dict": optimizer.state_dict(),
         "history": history,
         "test_metrics": test_metrics,
-        "channel_nums": channel_nums,
-        "learning_rate": learning_rate,
+        "num_channels": num_channels,
+        "learn_rate": learn_rate,
         "epoch_num": epoch_num,
-        "input_channel": input_channel,
-        "n_classes": n_classes
+        "channel_in": channel_in,
+        "class_num": class_num
     }, checkpoint_path)
 
     print(f"Model checkpoint saved to: {checkpoint_path}")
 
 # This function is a wrapper for running the full training experiment. Used in Main()
-def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info, channel_nums, learning_rate, epoch_num, clip, checkpoint_path):
+def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in, info, num_channels, learn_rate, epoch_num, clip, checkpoint_path):
     # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
     # Use this mode when training a fresh hyperparameter experiment.
-    class_names = get_class_names(info, n_classes)
-    hyperparameter_text = f"Channels: {channel_nums} | Learning rate: {learning_rate} | Epochs: {epoch_num}"
+    class_names = get_class_names(info, class_num)
+    param_text = f"Channels: {num_channels} | Learning rate: {learn_rate} | Epochs: {epoch_num}"
 
-    model = ResNet18(input_channels=input_channel, channel_nums=channel_nums, n_classes=n_classes).to(device)
+    model = ResNet18(input_channels=channel_in, num_channels=num_channels, class_num=class_num).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learn_rate)
 
-    history = train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num)
-    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names)
+    history = train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_num)
+    test_metrics = evaluate(model, DataTEST_Set, criterion, class_names=class_names)
 
-    plot_training_losses(history, hyperparameter_text=hyperparameter_text, save_path="model_outputs/Training_Validation_Loss.png")
-
-    plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Matrix (Test Set)", 
-                                 hyperparameter_text=hyperparameter_text, save_path="model_outputs/Confusion_Matrix_Test_Set.png")
+    plt_TrainingLoss(history, param_text=param_text, save_path="model_outputs/Training_Validation_Loss.png")
+    plt_ConfMatrix(test_metrics, class_names, param_text=param_text, save_path="model_outputs/Confusion_Matrix_Test_Set.png")
+    plt_ClassMetrics(test_metrics, param_text=param_text, save_path="model_outputs/Classification_Metrics_Test_Set.png")
+    plt_SummaryFinal(history, test_metrics, param_text=param_text, save_path="model_outputs/Model_Summary_Metrics.png")
     
-    plot_classification_metrics_table(test_metrics, title="Classification Metrics (Test Set)",
-        hyperparameter_text=hyperparameter_text, save_path="model_outputs/Classification_Metrics_Test_Set.png")
-    
-    plot_final_summary_table(history, test_metrics, title="Final Evaluation and Training Summary",
-        hyperparameter_text=hyperparameter_text, save_path="model_outputs/Model_Summary_Metrics.png")
-    
-    save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_path=checkpoint_path, channel_nums=channel_nums,
-                          learning_rate=learning_rate, epoch_num=epoch_num, input_channel=input_channel,n_classes=n_classes)
+    ModelSave(model, optimizer, history, test_metrics, checkpoint_path=checkpoint_path, num_channels=num_channels,
+                          learn_rate=learn_rate, epoch_num=epoch_num, channel_in=channel_in,class_num=class_num)
     return 
 
 # This function is a wrapper for loading a saved model checkpoint and evaluating it on the test set. Mostly used for markers. Used in Main()
-def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
+def RunTesting(checkpoint_path, DataTEST_Set, class_num, info):
     # Load a saved model checkpoint and run final evaluation on the test dataset.
     # This function is for reproducibility without rerunning the full training process.
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     criterion = nn.CrossEntropyLoss()
-    class_names = get_class_names(info, n_classes)
+    class_names = get_class_names(info, class_num)
 
-    model = ResNet18(input_channels=checkpoint["input_channel"], channel_nums=checkpoint["channel_nums"], 
-                     n_classes=checkpoint["n_classes"]).to(device)
+    model = ResNet18(input_channels=checkpoint["input_channel"], num_channels=checkpoint["num_channels"], 
+                     class_num=checkpoint["class_num"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    test_metrics = evaluate(model, test_dataset, criterion, class_names=class_names)
+    test_metrics = evaluate(model, DataTEST_Set, criterion, class_names=class_names)
 
-    hyperparameter_text = (f"Channels: {checkpoint['channel_nums']} |" f"Learning rate: {checkpoint['learning_rate']} | "f"Epochs: {checkpoint['epoch_num']}"
-    )
+    param_text = (f"Channels: {checkpoint['num_channels']} |" f"Learning rate: {checkpoint['learn_rate']} | "f"Epochs: {checkpoint['epoch_num']}")
 
-    plot_confusion_matrix_figure(test_metrics, class_names, title="Confusion Matrix (Loaded Model Test Set)",
-        hyperparameter_text=hyperparameter_text)
-    
-    plot_classification_metrics_table(test_metrics, title="Classification Metrics (Loaded Model Test Set)", 
-                                      hyperparameter_text=hyperparameter_text)
-    
-    plot_final_summary_table(checkpoint["history"], test_metrics, title="Final Evaluation and Training Summary (Loaded Model)",
-                             hyperparameter_text=hyperparameter_text)
-    
-    plot_training_losses(checkpoint["history"], hyperparameter_text=hyperparameter_text)
+    plt_ConfMatrix(test_metrics, class_names, param_text=param_text)
+    plt_ClassMetrics(test_metrics, param_text=param_text)
+    plt_SummaryFinal(checkpoint["history"], test_metrics, param_text=param_text)
+    plt_TrainingLoss(checkpoint["history"], param_text=param_text)
 
     return
 
@@ -631,9 +585,9 @@ if __name__ == '__main__':
     #
     # Each model has their own combination of hyperparameters.
     # This specific model is model [X].
-    channel_nums = [16, 32, 64, 128]
-    learning_rate = 1e-3
-    epoch_num = 2
+    HyperParam_Channels = [16, 32, 64, 128]
+    HyperParam_LR = 1e-3
+    HyperParam_Epochs = 5
 
     # Settings for data loading and preprocessing.
     BATCH_SIZE = 128
@@ -646,17 +600,17 @@ if __name__ == '__main__':
 
     # Load the BloodMNIST dataset for training, validation and testing.
     # Also loads the number of classes and metadata information
-    train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info = load_bloodmnist_data(batch_size=BATCH_SIZE, 
+    DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, input_channel, info = LoadDataBloodMNIST(batch_size=BATCH_SIZE, 
                                                                                                          download=DOWNLOAD, size=SIZE)
     if RUN_MODE == "train":
         # Run the model training segmentation
-        run_training_experiment(train_dataset=train_dataset, validate_dataset=validate_dataset, test_dataset=test_dataset,
-                                n_classes=n_classes, input_channel=input_channel, info=info, channel_nums=channel_nums, 
-                                learning_rate=learning_rate, epoch_num=epoch_num, clip=CLIP, checkpoint_path=CHECKPOINT_PATH)
+        RunTraining(DataTRAIN_Set=DataTRAIN_Set, DataVAL_Set=DataVAL_Set, DataTEST_Set=DataTEST_Set,
+                                class_num=class_num, channel_in=input_channel, info=info, num_channels=HyperParam_Channels, 
+                                learn_rate=HyperParam_LR, epoch_num=HyperParam_Epochs, clip=CLIP, checkpoint_path=CHECKPOINT_PATH)
 
     elif RUN_MODE == "test_model":
         # Just run the model testing for a fully trained model with hyperparameters defined in saved model entity
-        test_saved_model(checkpoint_path=CHECKPOINT_PATH, test_dataset=test_dataset, n_classes=n_classes, info=info)
+        RunTesting(checkpoint_path=CHECKPOINT_PATH, DataTEST_Set=DataTEST_Set, class_num=class_num, info=info)
 
     else:
         # Syntaxing error handling
