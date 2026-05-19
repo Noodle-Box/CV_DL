@@ -202,7 +202,7 @@ def LoadDataBloodMNIST(batch_size, download, size):
 
 
 # Helper function to get the class names from dataset information. thought i'd write this rather than just hardcoding the class names in
-def get_class_names(info, class_num):
+def GetClassNames(info, class_num):
     # Convert the MedMNIST label dictionary into an ordered class-name list.
     # Used for metric tables and confusion matrix legends.
     return [info["label"][str(i)] for i in range(class_num)]
@@ -449,9 +449,8 @@ def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
 
     plt.show()
 
-# Converts training time from seconds to hours and minutes
+# Small helper function for converting training time (s) --> (hours, minutes) 
 def format_train_time(train_time_seconds):
-    # The raw time is stored in seconds, but long training runs are easier to read in hours and minutes.
     total_minutes = int(train_time_seconds // 60)
     hours = total_minutes // 60
     minutes = total_minutes % 60
@@ -539,7 +538,7 @@ def ModelSave(model, optimizer, history, test_metrics, checkpoint_path, num_chan
 def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in, info, num_channels, learn_rate, epoch_num, clip, checkpoint_path):
     # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
     # Use this mode when training a fresh hyperparameter experiment.
-    class_names = get_class_names(info, class_num)
+    class_names = GetClassNames(info, class_num)
     param_text = f"Channels: {num_channels} | Learning rate: {learn_rate} | Epochs: {epoch_num}"
 
     model = ResNet18(input_channels=channel_in, num_channels=num_channels, class_num=class_num).to(device)
@@ -564,7 +563,7 @@ def RunTesting(checkpoint_path, DataTEST_Set, class_num, info):
     # This function is for reproducibility without rerunning the full training process.
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     criterion = nn.CrossEntropyLoss()
-    class_names = get_class_names(info, class_num)
+    class_names = GetClassNames(info, class_num)
 
     model = ResNet18(input_channels=checkpoint["input_channel"], num_channels=checkpoint["num_channels"], 
                      class_num=checkpoint["class_num"]).to(device)
