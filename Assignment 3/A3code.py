@@ -29,8 +29,8 @@ elif torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-############################################# Neural Network Modelling, Training, Testing ##############################################
 
+################################# The ResNet-18 Architecture + Residual Block Structure from draft ##################################
 
 # Code to build Residual Block-I and Residual Block-II. From given code draft (untouched)
 class ResidualBlock(nn.Module):
@@ -53,6 +53,7 @@ class ResidualBlock(nn.Module):
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
         return F.relu(out)
+
 
 # Building the ResNet-18 architecture. 
 class ResNet18(nn.Module):
@@ -146,15 +147,99 @@ class ResNet18(nn.Module):
 
     def forward(self, x):
         # Pass the BloodMNIST image batch through the initial feature extractor.
+        # Then pass the extracted features through the residual blocks to learn 
+        # Higher-level features such as edges, shapes, and textures relevant to blood cell classification.
+        # Final output is the raw class logits
         out = self.initial(x)
         out = self.block_cascade(out)
         out = self.global_avg_pool(out)
         out = self.flatten(out)
         out = self.fully_connected(out)
+
+        # Finally return the tensor of raw class logits with shape [128, 8] for batch size and classes
         return out
 
 
-# ---------------- From here, we define a function to train the neural network (YOU NEED TO COMPLETE THIS PART) ----------------
+############################################# Data Loading and Preprocessing for the NN ##############################################
+
+# Main function to load the datasets for model training, validation (parameter tuning) and testing
+# This function returns the metadata and the dataloader structures. Used in main 
+def load_bloodmnist_data(batch_size, download, size):
+
+    # We utilize the "BloodMNIST" dataset in the "MedMNIST2D" category.
+    #
+    # Where:
+    #
+    # Total images = 17,092 images in bloodmnist dataset
+    # Each image is a 28x28 pixel with 3 RGB channels, type: float32 after ToTensor()
+    # Each label is stored as an integer in range [0, 7] for the 8 classes.
+    # Every dataset has structure: (image, label)
+    #
+    # Training Set = 11959 images
+    # Validation Set = 1712 images
+    # Testing Set = 3421 images
+    #
+    # There are 8 different classes (types) of blood cells:
+    # 0: Basophils
+    # 1: Eosinophils
+    # 2: Erythroblasts
+    # 3: Immature Granulocytes (IG), which consists of metamyelocytes, myelocytes, and promyelocytes
+    # 4: Lymphocytes
+    # 5: Monocytes
+    # 6: Neutrophils
+    # 7: Platelets (thrombocytes)
+
+    # Obtain 2D BloodMNIST dataset and the information of this dataset
+    data_type = 'bloodmnist'
+    info = INFO[data_type]
+
+    n_classes = len(info['label'])         # Extract the number of classes in this dataset
+    input_channel = info['n_channels']     # Extract the number of channels in each image sample (BloodMNIST has images with 3 color channels)
+
+    DataClass = getattr(medmnist, info['python_class'])
+
+    ######### Data Loading and Preprocessing ##########
+
+    # 1. Transform data for PyTorch formatting.
+    # Transforms from (number_of_images, height, width, channels) ---> (channels, height, width)
+    # In this case: (number_of_images, 28, 28, 3) ---> (3, 28, 28)
+    #
+    # 2. Normalize the data.
+    # Set the mean and standard deviation to 0.5 to map pixel values from [0, 1] to [-1, 1]
+    data_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+
+    train_data = DataClass(split='train', transform=data_transform, download=download, size=size)
+    validate_data = DataClass(split='val', transform=data_transform, download=download, size=size)
+    test_data = DataClass(split='test', transform=data_transform, download=download, size=size)
+
+    # Confirm that all official BloodMNIST splits were loaded.
+    print("BloodMNIST dataset loaded successfully.")
+
+    # Put the training and testing datasets in dataloader structures. 
+    # You will use the dataloaders in your training and testing functions to visit each sample of the batch.
+    pin_memory = device.type == "cuda"
+    train_dataset = data.DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
+    validate_dataset = data.DataLoader(dataset=validate_data, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
+    test_dataset = data.DataLoader(dataset=test_data, batch_size=1, shuffle=False, pin_memory=pin_memory)
+
+    return train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info
+
+
+# Helper function to get the class names from dataset information. thought i'd write this rather than just hardcoding the class names in
+def get_class_names(info, n_classes):
+    # Convert the MedMNIST label dictionary into an ordered class-name list.
+    # This is used for metric tables and confusion matrix legends.
+    return [info["label"][str(i)] for i in range(n_classes)]
+
+
+################################################## RNN Training Functionality ########################################################
+
+# Main training functionality that uses the training dataset and validation dataset for evaluation. 
+# Uses back propagation to update model weights
+# Returns training history for metrics. Used in Main()
 def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, epoch_num):
     # Train the model and validate it after each epoch.
     # This returns the loss and accuracy history needed for report tables and curves.
@@ -215,10 +300,13 @@ def train(model, train_dataset, validate_dataset, optimizer, criterion, clip, ep
     history["training_time_seconds"] = time.time() - start_time
     return history
 
-# ---------------- From here, we define a function to evaluate the trained neural network (YOU NEED TO COMPLETE THIS PART) ----------------
+################################################## RNN Evaluation Functionality ######################################################
+
+# Evaluates model without updating weights
+# Produces output metrics used for evaluation figures and tables.
+# Used in both model validation during training and final test evaluation.
 def evaluate(model, eval_dataset, criterion, class_names=None, show_report=False, dataset_name="Evaluation"):
-    # Evaluate the model without updating weights.
-    # This is used for both validation during training and final test evaluation.
+
     model.eval()
 
     running_loss = 0.0
@@ -328,6 +416,8 @@ def evaluate(model, eval_dataset, criterion, class_names=None, show_report=False
         "labels": all_labels,
         "predictions": all_predictions
     }
+
+########################################## Figure and Table Generation of Evaluation Metrics #########################################
 
 
 def plot_training_losses(history, hyperparameter_text=None, save_path=None):
@@ -542,6 +632,9 @@ def print_accuracy_table(history, test_metrics):
     print(f"Final Test Weighted Recall: {test_metrics['weighted_recall']:.4f}")
     print(f"Total Training Time (seconds): {history['training_time_seconds']:.2f}")
 
+################################################# Saving and Testing the Trained Model ################################################
+
+
 
 def save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_path, channel_nums, learning_rate, epoch_num, input_channel, n_classes):
     # Save the trained model and experiment settings.
@@ -563,10 +656,12 @@ def save_model_checkpoint(model, optimizer, history, test_metrics, checkpoint_pa
     print(f"Model checkpoint saved to: {checkpoint_path}")
 
 
-def test_saved_model(checkpoint_path, test_dataset, criterion, class_names):
+def test_saved_model(checkpoint_path, test_dataset, n_classes, info):
     # Load a saved model checkpoint and run final evaluation on the test dataset.
     # This function is for reproducibility without rerunning the full training process.
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    criterion = nn.CrossEntropyLoss()
+    class_names = get_class_names(info, n_classes)
 
     model = ResNet18(
         input_channels=checkpoint["input_channel"],
@@ -613,78 +708,6 @@ def test_saved_model(checkpoint_path, test_dataset, criterion, class_names):
     )
 
     return test_metrics
-
-# Main function to load the datasets for model training, validation (parameter tuning) and testing
-# This function returns the metadata and the dataloader structures. Used in main 
-def load_bloodmnist_data(batch_size, download, size):
-
-    # We utilize the "BloodMNIST" dataset in the "MedMNIST2D" category.
-    #
-    # Where:
-    #
-    # Total images = 17,092 images in bloodmnist dataset
-    # Each image is a 28x28 pixel with 3 RGB channels, type: float32 after ToTensor()
-    # Each label is stored as an integer in range [0, 7] for the 8 classes.
-    # Every dataset has structure: (image, label)
-    #
-    # Training Set = 11959 images
-    # Validation Set = 1712 images
-    # Testing Set = 3421 images
-    #
-    # There are 8 different classes (types) of blood cells:
-    # 0: Basophils
-    # 1: Eosinophils
-    # 2: Erythroblasts
-    # 3: Immature Granulocytes (IG), which consists of metamyelocytes, myelocytes, and promyelocytes
-    # 4: Lymphocytes
-    # 5: Monocytes
-    # 6: Neutrophils
-    # 7: Platelets (thrombocytes)
-
-    # Obtain 2D BloodMNIST dataset and the information of this dataset
-    data_type = 'bloodmnist'
-    info = INFO[data_type]
-
-    n_classes = len(info['label'])         # Extract the number of classes in this dataset
-    input_channel = info['n_channels']     # Extract the number of channels in each image sample (BloodMNIST has images with 3 color channels)
-
-    DataClass = getattr(medmnist, info['python_class'])
-
-    ######### Data Loading and Preprocessing ##########
-
-    # 1. Transform data for PyTorch formatting.
-    # Transforms from (number_of_images, height, width, channels) ---> (channels, height, width)
-    # In this case: (number_of_images, 28, 28, 3) ---> (3, 28, 28)
-    #
-    # 2. Normalize the data.
-    # Set the mean and standard deviation to 0.5 to map pixel values from [0, 1] to [-1, 1]
-    data_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
-
-    train_data = DataClass(split='train', transform=data_transform, download=download, size=size)
-    validate_data = DataClass(split='val', transform=data_transform, download=download, size=size)
-    test_data = DataClass(split='test', transform=data_transform, download=download, size=size)
-
-    # Confirm that all official BloodMNIST splits were loaded.
-    print("BloodMNIST dataset loaded successfully.")
-
-    # Put the training and testing datasets in dataloader structures. 
-    # You will use the dataloaders in your training and testing functions to visit each sample of the batch.
-    pin_memory = device.type == "cuda"
-    train_dataset = data.DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
-    validate_dataset = data.DataLoader(dataset=validate_data, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
-    test_dataset = data.DataLoader(dataset=test_data, batch_size=1, shuffle=False, pin_memory=pin_memory)
-
-    return train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info
-
-def get_class_names(info, n_classes):
-    # Convert the MedMNIST label dictionary into an ordered class-name list.
-    # This is used for metric tables and confusion matrix legends.
-    return [info["label"][str(i)] for i in range(n_classes)]
-
-
 
 def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_classes, input_channel, info, channel_nums, learning_rate, epoch_num, clip, checkpoint_path):
     # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
@@ -742,21 +765,7 @@ def run_training_experiment(train_dataset, validate_dataset, test_dataset, n_cla
     return history, test_metrics
 
 
-def run_saved_model_evaluation(test_dataset, n_classes, info, checkpoint_path):
-    # Load an existing checkpoint and evaluate the test set once.
-    # Use this mode when you do not want to retrain the model.
-    criterion = nn.CrossEntropyLoss()
-    class_names = get_class_names(info, n_classes)
-
-    return test_saved_model(
-        checkpoint_path=checkpoint_path,
-        test_dataset=test_dataset,
-        criterion=criterion,
-        class_names=class_names
-    )
-
-
-########################################## Main Function for Data Loading, Training, and Testing ##########################################
+########################################## Main Function with Hyperparameter Settings ##########################################
 
 
 # This is the main function
@@ -805,11 +814,11 @@ if __name__ == '__main__':
         )
 
     elif RUN_MODE == "test_model":
-        loaded_test_metrics = run_saved_model_evaluation(
+        loaded_test_metrics = test_saved_model(
+            checkpoint_path=CHECKPOINT_PATH,
             test_dataset=test_dataset,
             n_classes=n_classes,
-            info=info,
-            checkpoint_path=CHECKPOINT_PATH
+            info=info
         )
 
     else:
