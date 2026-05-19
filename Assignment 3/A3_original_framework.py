@@ -67,6 +67,8 @@ def evaluate(model, test_dataset, criterion):
 
 # This is the main function
 if __name__ == '__main__':
+
+    #### MAIN HYPEYPARAMETERS FOR TUNING #### 
     data_type = 'bloodmnist'  # We use the 2D BloodMNIST dataset in our task (images obtained from the blood cell microscope)
 
     info = INFO[data_type]  # Extract the information of this dataset
