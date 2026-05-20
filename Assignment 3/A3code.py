@@ -768,14 +768,18 @@ def CompareSavedModels(start_model, end_model):
 # This is the main function
 if __name__ == '__main__':
 
-    # TO MARKER: 
-    # 1. Change this to "test_model" to just run the pre-trained model to test the testing dataset and give evaluation metrics
-    #   Otherwise: "train" re-trains the new model. "compare_models" compares model checkpoints 1-9.
+    # FOR MARKER: 
+    # Change this to "test_model" to run individual model testing
+    # Change this to "compare_models" and change (start_model=x, end_model=y) in CompareSavedModels() for overall model commparsion between ranges x and y. 
+    # For all, (x,y) use (1, 13). 
+    #    - For channel number and learning rate tuning, use (1,9). 
+    #    - For epoch number tuning, use (10,13)
     #
-    # 2. Change MODEL_NUM to whatever number (1-15) to test which model you want to evaluate
+    # Otherwise: "train" re-trains the new model. 
+    
     RUN_MODE = "compare_models"  # Options: "train", "test_model", "compare_models"
 
-    # IF "train" or "test_model" is selected, change MODEL_NUM to the model you want to test since these models are already pre-trained
+    # IF "train" or "test_model" is selected, change MODEL_NUM to the model you want to test since these models are already pre-trained. Right now, 1-13
     MODEL_NUM = 1
 
     #### MAIN HYPERPARAMETERS FOR TUNING ####
