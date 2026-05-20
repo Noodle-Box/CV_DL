@@ -119,7 +119,7 @@ class ResNet18(nn.Module):
         # Fully connected classifier:
         # The first linear layer reduces the C4 feature vector to C4/2 features.
         # The ReLU adds non-linearity before the final linear layer maps features to
-        # the 8 BloodMNIST class logits. Softmax is not used here because nn.CrossEntropyLoss expects raw logits.
+        # the 8 BloodMNIST class logits. 
         self.fully_connected = nn.Sequential(nn.Linear(c4, c4 // 2), nn.ReLU(inplace=True), nn.Linear(c4 // 2, class_num))
 
     def forward(self, x):
@@ -204,8 +204,6 @@ def LoadDataBloodMNIST(batch_size, download, size):
 
 # Helper function to get the class names from dataset information. thought i'd write this rather than just hardcoding the class names in
 def GetClassNames(info, class_num):
-    # Convert the MedMNIST label dictionary into an ordered class-name list.
-    # Used for metric tables and confusion matrix legends.
     return [info["label"][str(i)] for i in range(class_num)]
 
 
@@ -215,8 +213,6 @@ def GetClassNames(info, class_num):
 # Uses back propagation to update model weights
 # Returns training history for metrics. Used in Main()
 def train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_num):
-    # Train the model and validate it after each epoch.
-    # This returns the loss and accuracy history needed for report tables and curves.
     history = {
         "train_loss": [],
         "val_loss": [],
@@ -227,13 +223,17 @@ def train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_n
 
     start_time = time.time()
 
+    # Main training loop. Utlizes Pytorch features
     for epoch in range(epoch_num):
+        # Put the model in training mode
         model.train()
 
         run_loss = 0.0
         correct = 0
         total = 0
 
+        # Loop through training batches and update model weights with backpropagation.
+        # Utilizes CrossEntropyLoss as the loss function and ADAM as the optimizer for weight updates.
         for images, labels in DataTRAIN_Set:
             images = images.to(device, non_blocking=True)
             labels = labels.view(-1).long().to(device, non_blocking=True)
@@ -248,14 +248,17 @@ def train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_n
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
             optimizer.step()
 
-            run_loss += loss.item() * images.size(0)
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            # Track the losses and training accuracy for each epoch
+            run_loss += loss.item() * images.size(0)         # Average loss for current batch
+            _, predicted = torch.max(outputs, 1)             # Selects class with highest output logic for each image
+            total += labels.size(0)                          # Adds total number of images in batch to total count
+            correct += (predicted == labels).sum().item()    # Counts predictions mathed with true labels and adds them to total correct count
 
+        # Epoch metrics
         train_loss = run_loss / total
         train_acc = 100.0 * correct / total
 
+        # Evaluate the model on the validation set without weight updating for final performance
         val_metric = evaluate(model, DataVAL_Set, criterion)
         val_loss = val_metric["loss"]
         val_acc = val_metric["accuracy"]
@@ -265,6 +268,7 @@ def train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_n
         history["train_acc"].append(train_acc)
         history["val_acc"].append(val_acc)
 
+        # Print traning metrics to terminal
         print(
             f"Epoch [{epoch + 1}/{epoch_num}] "
             f"Training Loss: {train_loss:.4f} | Training Acc: {train_acc:.2f}% | "
@@ -272,6 +276,7 @@ def train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_n
         )
 
     history["train time (s)"] = time.time() - start_time
+    # Return the training history. Used for plotting and final metrics.
     return history
 
 ################################################## RNN Evaluation Functionality ######################################################
@@ -289,19 +294,27 @@ def evaluate(model, eDataVAL_Set, criterion, class_names=None):
     all_labels = []
     all_preds = []
 
+    # Evaluate the model on the validation test without updating the weights
     with torch.no_grad():
         for images, labels in eDataVAL_Set:
+            # Move to GPU
             images = images.to(device, non_blocking=True)
             labels = labels.view(-1).long().to(device, non_blocking=True)
 
+            # Predict class logits and calculatess loss for batch
             outputs = model(images)
             loss = criterion(outputs, labels)
 
+            # Acccumulate the loss then predict the class with highest logit
             run_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs, 1)
+
+            # Accuracy updated by counting corrected predictions
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
+            # True and predicted labels moved back to CPU for storage
+            # Used in confusion matrix and other metrics
             all_labels.extend(labels.detach().cpu().numpy())
             all_preds.extend(predicted.detach().cpu().numpy())
 
@@ -319,6 +332,8 @@ def evaluate(model, eDataVAL_Set, criterion, class_names=None):
     macro_recall = metrics.recall_score(all_labels, all_preds, labels=report_labels, average="macro", zero_division=0)
     weight_recall = metrics.recall_score(all_labels, all_preds, labels=report_labels, average="weighted", zero_division=0)
 
+    # Create structured list off precision and recall values for each blood cell class
+    # Used in plotting classification metrics 
     class_metric = []
     if class_names is not None:
         for class_name, precision, recall in zip(class_names, class_precision, class_recall):
@@ -345,11 +360,13 @@ def evaluate(model, eDataVAL_Set, criterion, class_names=None):
 
 
 # Plots the training and validation loss curves over epochs
+# We want to observe how well the model learnend from training data over time
+# Also observes if model is overfitting from divergence of training and validation loss curves
 def plt_TrainingLoss(history, param_text=None, save_path=None):
-    # Plot training and validation loss per epoch.
-    # This graph is needed for the report discussion of underfitting and overfitting.
+
     epochs = range(1, len(history["train_loss"]) + 1)
 
+    # Figure formatting
     fig, ax = plt.subplots(figsize=(8, 5))
     title = f"Training and Validation Loss - Model: {param_text}"
     ax.set_title(title, fontsize=11, fontweight="bold")
@@ -369,12 +386,15 @@ def plt_TrainingLoss(history, param_text=None, save_path=None):
 
     plt.close(fig)
 
+
 # Plots the confusion matrix as a heatmap for class-specific performance ananlysis
+# We want to see which blood specific classes were correctly classified
+# We also want to observe which classes were confused with each other as a visual aid for discussion of model
 def plt_ConfMatrix(test_metrics, class_names, param_text=None, save_path=None):
-    # Plot the confusion matrix as a heatmap for class-level error analysis.
-    # This helps identify which blood cell types are confused by the model.
+
     conf_matrix = test_metrics["confusion_matrix"]
 
+    # Figure formatting
     fig, ax = plt.subplots(figsize=(12, 9))
     image = ax.imshow(conf_matrix, interpolation="nearest", cmap=plt.cm.Blues)
     title = f"Confusion Matrix - Model: {param_text}"
@@ -411,10 +431,11 @@ def plt_ConfMatrix(test_metrics, class_names, param_text=None, save_path=None):
 
     plt.close(fig)
 
-# Plots the precision and recall for class classification
+# Plots the precision and recall for class specific classification
+# Want to see if model performed well across all classes rather than only achieving an overall high accuracy
 def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
-    # Plot precision and recall as a table figure.
-    # Support and F1-score are excluded to keep the table focused for the report draft.
+
+    # Figure formatting
     table_rows = []
     for row in test_metrics["class_metric"]:
         table_rows.append([row["class"], f"{row['precision']:.4f}", f"{row['recall']:.4f}"])
@@ -450,18 +471,19 @@ def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
 
     plt.close(fig)
 
-# Small helper function for converting training time (s) --> (hours, minutes) 
+# Small helper function for converting training time (s) --> (minutes, seconds) 
 def format_train_time(train_time_seconds):
-    total_minutes = int(train_time_seconds // 60)
-    hours = total_minutes // 60
-    minutes = total_minutes % 60
-    return f"{hours} hours, {minutes} minutes"
+    total_seconds = int(round(train_time_seconds))
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    return f"{minutes} min {seconds} sec"
 
 
 # Plots overall model metrics in table
+# Used to evaluate model's final test performance and its training behaviour as a summary
+# Also used as a quick model reference for its performance
 def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
-    # Plot final test metrics and best training/validation metrics in one table.
-    # This table is intended for quick comparison between trained model variants.
+
     table_rows = [
         ["Final Evaluation Metrics", "Value (%)"],
         ["Final Test Accuracy (%)", f"{test_metrics['accuracy']:.2f}"],
@@ -470,7 +492,7 @@ def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
         ["Final Test Weighted Precision", f"{test_metrics['weight_precision']:.4f}"],
         ["Final Test Macro Recall", f"{test_metrics['macro_recall']:.4f}"],
         ["Final Test Weighted Recall", f"{test_metrics['weight_recall']:.4f}"],
-        ["Total Training Time (hours, minutes)", format_train_time(history["train time (s)"])],
+        ["Total Training Time (minutes, seconds)", format_train_time(history["train time (s)"])],
         ["", ""],
         ["Training Metrics", "Value (%)"],
         ["Lowest Training Loss", f"{min(history['train_loss']):.4f}"],
@@ -479,6 +501,7 @@ def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
         ["Highest Validation Accuracy (%)", f"{max(history['val_acc']):.2f}"]
     ]
 
+    # Figure formatting
     fig, ax = plt.subplots(figsize=(10, 7))
     ax.axis("off")
     title = f"Model Summary Metrics - Model: {param_text}"
@@ -516,8 +539,9 @@ def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
 ########################################### Saving the Model and Wrapper Functions for Main ################################################
 
 # This function creates the folder paths for each model experiment.
+# Each model has its own folder for the trained checkpoint and its output figures.
+# Used with ModelSave() to save model and its outputs so it can easily be reloaded later
 def GetModelPaths(model_num):
-    # Each model has its own folder for the trained checkpoint and its output figures.
     base_folder = os.path.dirname(os.path.abspath(__file__))
     model_folder = os.path.join(base_folder, "Pre-Trained Models", f"Model {model_num}")
     trained_model_folder = os.path.join(model_folder, f"Trained Model - Model {model_num}")
@@ -526,11 +550,8 @@ def GetModelPaths(model_num):
 
     return checkpoint_path, model_outputs_folder
 
-
 # This function saves the model entity after training such that it can be reloaded later for testing without retraining. 
 def ModelSave(model, optimizer, history, test_metrics, checkpoint_path, num_channels, learn_rate, epoch_num, channel_in, class_num):
-    # Save the trained model and experiment settings.
-    # The checkpoint lets assessors reload the model and evaluate it without retraining.
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
 
     torch.save({
@@ -556,12 +577,39 @@ def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in,
     param_text = f"Channels: {num_channels} | Learning rate: {learn_rate} | Epochs: {epoch_num}"
 
     model = ResNet18(input_channels=channel_in, num_channels=num_channels, class_num=class_num).to(device)
-    criterion = nn.CrossEntropyLoss()
+
+
+
+    # The cross entropy loss function used for multi-class clasisfication as it compares model's raw class score (logits)
+    # the correct class labels. Used in gradient descent to update model weights in train()
+    # From [5] in report
+
+    # Working theory:
+    # 1. Outputs 8 logits and compares the predicted logits against the correct testing class labels
+    # 2. True labels are integers [0,7] and calculates the loss with backpropagation (in train())
+    # 3. Loss observed and computes gradients using loss.backward() (in train())
+    criterion = nn.CrossEntropyLoss() #Change this for other testing functions from internet
+
+
+    # Adaptive Movement Estimation (ADAM) is an optimizer for updating neural network weights in train()
+    #
+    # Working theory:
+    # 1. loss.backward in train() computes the gradients for the trainable parameters 
+    # 2. Adam keeps a moving average of the gradients for each parameter and its squared values for update scaling
+    # 3. M.A of parameters = direction | M.A of squared values = scaling
+    # 4. It then uses them to update model parameters such that:
+    # M.A of parameters = direction to update | M.A of squared values = how much to update
+    # From [4] in report
     optimizer = optim.Adam(model.parameters(), lr=learn_rate)
 
+    # Train the model and evaluate on the test set and validation set. Use the CrossEntropyLoss as a loss function
+    # Also use the ADAM optimizer for weight updates
     history = train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_num)
+
+    # Then, evaluate trained model on the test set for final performance metrics. Also use the CrossEntropyLoss as a standard multi-class loss function
     test_metrics = evaluate(model, DataTEST_Set, criterion, class_names=class_names)
 
+    # Run these plotting functions to generation figures for model evaluation. These are saved in model[x] --> Model Outputs - Model [x] folders
     plt_TrainingLoss(history, param_text=param_text, save_path=os.path.join(output_folder, "Training_Validation_Loss.png"))
     plt_ConfMatrix(test_metrics, class_names, param_text=param_text, save_path=os.path.join(output_folder, "Confusion_Matrix_Test_Set.png"))
     plt_ClassMetrics(test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Classification_Metrics_Test_Set.png"))
@@ -571,22 +619,28 @@ def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in,
                           learn_rate=learn_rate, epoch_num=epoch_num, channel_in=channel_in,class_num=class_num)
     return 
 
+
 # This function is a wrapper for loading a saved model checkpoint and evaluating it on the test set. Mostly used for markers. Used in Main()
 def RunTesting(checkpoint_path, DataTEST_Set, class_num, info, output_folder):
-    # Load a saved model checkpoint and run final evaluation on the test dataset.
-    # This function is for reproducibility without rerunning the full training process.
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    criterion = nn.CrossEntropyLoss()
+
+    # Use CrossEntropyLoss as a standard multi-class loss function
+    criterion = nn.CrossEntropyLoss() #Change this for other testing functions from internet
+
+    # Extract class names from dataset
     class_names = GetClassNames(info, class_num)
 
     model = ResNet18(input_channels=checkpoint["input_channel"], num_channels=checkpoint["num_channels"], 
                      class_num=checkpoint["class_num"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
+    # Evaluate the loaded model on the test set for final peformance metrics
     test_metrics = evaluate(model, DataTEST_Set, criterion, class_names=class_names)
 
+    # Extract hyperparameter settings 
     param_text = (f"Channels: {checkpoint['num_channels']} |" f"Learning rate: {checkpoint['learn_rate']} | "f"Epochs: {checkpoint['epoch_num']}")
 
+    # Run these plotting functions to generation figures for model evaluation. These are saved in model[x] --> Model Outputs - Model [x] folders
     plt_ConfMatrix(test_metrics, class_names, param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Confusion_Matrix_Test_Set.png"))
     plt_ClassMetrics(test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Classification_Metrics_Test_Set.png"))
     plt_SummaryFinal(checkpoint["history"], test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Summary_Metrics.png"))
@@ -595,8 +649,9 @@ def RunTesting(checkpoint_path, DataTEST_Set, class_num, info, output_folder):
     return
 
 
-# This function compares saved model checkpoints for hyperparameter selection.
-def CompareSavedModels(start_model=1, end_model=9):
+# Used to load each saved model "entity" and compare performance metrics
+# Allows to visualise and best hyperparameter settings across different trained models.
+def CompareSavedModels(start_model, end_model):
     # Read each saved checkpoint and extract validation metrics used for model selection.
     # Missing model files are kept in the table so the comparison can be rerun as more models finish.
     headers = [
@@ -617,6 +672,7 @@ def CompareSavedModels(start_model=1, end_model=9):
         "Val Loss Stability"
     ]
 
+    # Table Figure Formatting
     table_rows = []
     base_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Pre-Trained Models")
 
@@ -627,6 +683,7 @@ def CompareSavedModels(start_model=1, end_model=9):
             table_rows.append([model_num, "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
             continue
 
+        # Load model entity and extract the metric history 
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         history = checkpoint["history"]
         learn_rate_text = f"{checkpoint['learn_rate']:.0e}".replace("e-0", "e-").replace("e+0", "e+")
@@ -645,6 +702,7 @@ def CompareSavedModels(start_model=1, end_model=9):
         last_val_losses = history["val_loss"][-10:]
         val_loss_stability = max(last_val_losses) - min(last_val_losses)
 
+        # Table formatting
         table_rows.append([
             model_num,
             str(checkpoint["num_channels"]),
@@ -671,6 +729,7 @@ def CompareSavedModels(start_model=1, end_model=9):
         writer.writerow(headers)
         writer.writerows(table_rows)
 
+    # Output comparison table to console as CSV and load as a figure
     print("\nModel Comparison Table")
     column_widths = [max(len(str(row[index])) for row in [headers] + table_rows) for index in range(len(headers))]
     print(" | ".join(str(headers[index]).ljust(column_widths[index]) for index in range(len(headers))))
@@ -715,13 +774,15 @@ if __name__ == '__main__':
     #
     # 2. Change MODEL_NUM to whatever number (1-15) to test which model you want to evaluate
     RUN_MODE = "compare_models"  # Options: "train", "test_model", "compare_models"
+
+    # IF "train" or "test_model" is selected, change MODEL_NUM to the model you want to test since these models are already pre-trained
     MODEL_NUM = 1
 
     #### MAIN HYPERPARAMETERS FOR TUNING ####
     #
     # Each model has their own combination of hyperparameters.
     # This specific model is model [X].
-    HyperParam_Channels = [8, 16, 32, 64]
+    HyperParam_Channels = [32, 64, 128, 256]
     HyperParam_LR = 1e-3
     HyperParam_Epochs = 50
 
@@ -736,7 +797,7 @@ if __name__ == '__main__':
 
     if RUN_MODE == "compare_models":
         # Read saved checkpoints and create a comparison table without retraining or loading data.
-        CompareSavedModels(start_model=1, end_model=9)
+        CompareSavedModels(start_model=1, end_model=13)
 
     else:
         # Load the BloodMNIST dataset for training, validation and testing.
