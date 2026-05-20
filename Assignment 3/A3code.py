@@ -1,6 +1,7 @@
 ################################################# Import Libraries ################################################
 # Standard imports
 import os
+import csv
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -366,7 +367,7 @@ def plt_TrainingLoss(history, param_text=None, save_path=None):
             os.makedirs(save_dir, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
-    plt.show()
+    plt.close(fig)
 
 # Plots the confusion matrix as a heatmap for class-specific performance ananlysis
 def plt_ConfMatrix(test_metrics, class_names, param_text=None, save_path=None):
@@ -408,7 +409,7 @@ def plt_ConfMatrix(test_metrics, class_names, param_text=None, save_path=None):
             os.makedirs(save_dir, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
-    plt.show()
+    plt.close(fig)
 
 # Plots the precision and recall for class classification
 def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
@@ -445,9 +446,9 @@ def plt_ClassMetrics(test_metrics, param_text=None, save_path=None):
         save_dir = os.path.dirname(save_path)
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
-    plt.show()
+    plt.close(fig)
 
 # Small helper function for converting training time (s) --> (hours, minutes) 
 def format_train_time(train_time_seconds):
@@ -510,9 +511,21 @@ def plt_SummaryFinal(history, test_metrics, param_text=None, save_path=None):
             os.makedirs(save_dir, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
-    plt.show()
+    plt.close(fig)
 
 ########################################### Saving the Model and Wrapper Functions for Main ################################################
+
+# This function creates the folder paths for each model experiment.
+def GetModelPaths(model_num):
+    # Each model has its own folder for the trained checkpoint and its output figures.
+    base_folder = os.path.dirname(os.path.abspath(__file__))
+    model_folder = os.path.join(base_folder, "Pre-Trained Models", f"Model {model_num}")
+    trained_model_folder = os.path.join(model_folder, f"Trained Model - Model {model_num}")
+    model_outputs_folder = os.path.join(model_folder, f"Model Outputs - Model {model_num}")
+    checkpoint_path = os.path.join(trained_model_folder, f"Model {model_num}.pth")
+
+    return checkpoint_path, model_outputs_folder
+
 
 # This function saves the model entity after training such that it can be reloaded later for testing without retraining. 
 def ModelSave(model, optimizer, history, test_metrics, checkpoint_path, num_channels, learn_rate, epoch_num, channel_in, class_num):
@@ -528,6 +541,7 @@ def ModelSave(model, optimizer, history, test_metrics, checkpoint_path, num_chan
         "num_channels": num_channels,
         "learn_rate": learn_rate,
         "epoch_num": epoch_num,
+        "input_channel": channel_in,
         "channel_in": channel_in,
         "class_num": class_num
     }, checkpoint_path)
@@ -535,7 +549,7 @@ def ModelSave(model, optimizer, history, test_metrics, checkpoint_path, num_chan
     print(f"Model checkpoint saved to: {checkpoint_path}")
 
 # This function is a wrapper for running the full training experiment. Used in Main()
-def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in, info, num_channels, learn_rate, epoch_num, clip, checkpoint_path):
+def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in, info, num_channels, learn_rate, epoch_num, clip, checkpoint_path, output_folder):
     # Train a new model, evaluate it on the test set, save figures, and save a checkpoint.
     # Use this mode when training a fresh hyperparameter experiment.
     class_names = GetClassNames(info, class_num)
@@ -548,17 +562,17 @@ def RunTraining(DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, channel_in,
     history = train(model, DataTRAIN_Set, DataVAL_Set, optimizer, criterion, clip, epoch_num)
     test_metrics = evaluate(model, DataTEST_Set, criterion, class_names=class_names)
 
-    plt_TrainingLoss(history, param_text=param_text, save_path="model_outputs/Training_Validation_Loss.png")
-    plt_ConfMatrix(test_metrics, class_names, param_text=param_text, save_path="model_outputs/Confusion_Matrix_Test_Set.png")
-    plt_ClassMetrics(test_metrics, param_text=param_text, save_path="model_outputs/Classification_Metrics_Test_Set.png")
-    plt_SummaryFinal(history, test_metrics, param_text=param_text, save_path="model_outputs/Model_Summary_Metrics.png")
+    plt_TrainingLoss(history, param_text=param_text, save_path=os.path.join(output_folder, "Training_Validation_Loss.png"))
+    plt_ConfMatrix(test_metrics, class_names, param_text=param_text, save_path=os.path.join(output_folder, "Confusion_Matrix_Test_Set.png"))
+    plt_ClassMetrics(test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Classification_Metrics_Test_Set.png"))
+    plt_SummaryFinal(history, test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Model_Summary_Metrics.png"))
     
     ModelSave(model, optimizer, history, test_metrics, checkpoint_path=checkpoint_path, num_channels=num_channels,
                           learn_rate=learn_rate, epoch_num=epoch_num, channel_in=channel_in,class_num=class_num)
     return 
 
 # This function is a wrapper for loading a saved model checkpoint and evaluating it on the test set. Mostly used for markers. Used in Main()
-def RunTesting(checkpoint_path, DataTEST_Set, class_num, info):
+def RunTesting(checkpoint_path, DataTEST_Set, class_num, info, output_folder):
     # Load a saved model checkpoint and run final evaluation on the test dataset.
     # This function is for reproducibility without rerunning the full training process.
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
@@ -573,29 +587,143 @@ def RunTesting(checkpoint_path, DataTEST_Set, class_num, info):
 
     param_text = (f"Channels: {checkpoint['num_channels']} |" f"Learning rate: {checkpoint['learn_rate']} | "f"Epochs: {checkpoint['epoch_num']}")
 
-    plt_ConfMatrix(test_metrics, class_names, param_text=param_text)
-    plt_ClassMetrics(test_metrics, param_text=param_text)
-    plt_SummaryFinal(checkpoint["history"], test_metrics, param_text=param_text)
-    plt_TrainingLoss(checkpoint["history"], param_text=param_text)
+    plt_ConfMatrix(test_metrics, class_names, param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Confusion_Matrix_Test_Set.png"))
+    plt_ClassMetrics(test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Classification_Metrics_Test_Set.png"))
+    plt_SummaryFinal(checkpoint["history"], test_metrics, param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Summary_Metrics.png"))
+    plt_TrainingLoss(checkpoint["history"], param_text=param_text, save_path=os.path.join(output_folder, "Loaded_Model_Training_Validation_Loss.png"))
 
     return
+
+
+# This function compares saved model checkpoints for hyperparameter selection.
+def CompareSavedModels(start_model=1, end_model=9):
+    # Read each saved checkpoint and extract validation metrics used for model selection.
+    # Missing model files are kept in the table so the comparison can be rerun as more models finish.
+    headers = [
+        "Model",
+        "Channels",
+        "Learning Rate",
+        "Epochs",
+        "Highest Val Acc (%)",
+        "Val Acc Epoch",
+        "Lowest Val Loss",
+        "Val Loss Epoch",
+        "Final Val Acc (%)",
+        "Final Val Loss",
+        "Smallest Train-Val Gap (%)",
+        "Gap Epoch",
+        "Final Train-Val Gap (%)",
+        "Training Time",
+        "Val Loss Stability"
+    ]
+
+    table_rows = []
+    base_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Pre-Trained Models")
+
+    for model_num in range(start_model, end_model + 1):
+        checkpoint_path, _ = GetModelPaths(model_num)
+
+        if not os.path.exists(checkpoint_path):
+            table_rows.append([model_num, "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
+            continue
+
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        history = checkpoint["history"]
+        learn_rate_text = f"{checkpoint['learn_rate']:.0e}".replace("e-0", "e-").replace("e+0", "e+")
+
+        highest_val_acc = max(history["val_acc"])
+        highest_val_acc_epoch = history["val_acc"].index(highest_val_acc) + 1
+
+        lowest_val_loss = min(history["val_loss"])
+        lowest_val_loss_epoch = history["val_loss"].index(lowest_val_loss) + 1
+
+        train_val_gaps = [abs(train_acc - val_acc) for train_acc, val_acc in zip(history["train_acc"], history["val_acc"])]
+        smallest_gap = min(train_val_gaps)
+        smallest_gap_epoch = train_val_gaps.index(smallest_gap) + 1
+        final_gap = abs(history["train_acc"][-1] - history["val_acc"][-1])
+
+        last_val_losses = history["val_loss"][-10:]
+        val_loss_stability = max(last_val_losses) - min(last_val_losses)
+
+        table_rows.append([
+            model_num,
+            str(checkpoint["num_channels"]),
+            learn_rate_text,
+            checkpoint["epoch_num"],
+            f"{highest_val_acc:.2f}",
+            highest_val_acc_epoch,
+            f"{lowest_val_loss:.4f}",
+            lowest_val_loss_epoch,
+            f"{history['val_acc'][-1]:.2f}",
+            f"{history['val_loss'][-1]:.4f}",
+            f"{smallest_gap:.2f}",
+            smallest_gap_epoch,
+            f"{final_gap:.2f}",
+            format_train_time(history["train time (s)"]),
+            f"{val_loss_stability:.4f}"
+        ])
+
+    os.makedirs(base_folder, exist_ok=True)
+
+    csv_path = os.path.join(base_folder, f"Model Comparison Tables {start_model} to {end_model}.csv")
+    with open(csv_path, "w", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(headers)
+        writer.writerows(table_rows)
+
+    print("\nModel Comparison Table")
+    column_widths = [max(len(str(row[index])) for row in [headers] + table_rows) for index in range(len(headers))]
+    print(" | ".join(str(headers[index]).ljust(column_widths[index]) for index in range(len(headers))))
+    print("-+-".join("-" * width for width in column_widths))
+    for row in table_rows:
+        print(" | ".join(str(row[index]).ljust(column_widths[index]) for index in range(len(headers))))
+
+    fig_height = 0.45 * len(table_rows) + 2.0
+    fig, ax = plt.subplots(figsize=(22, fig_height))
+    ax.axis("off")
+    ax.set_title(f"Model Comparison Table - Models {start_model} to {end_model}", fontsize=12, fontweight="bold", pad=12)
+
+    table = ax.table(cellText=table_rows, colLabels=headers, loc="center", cellLoc="center", colLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.35)
+
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_text_props(weight="bold")
+            cell.set_facecolor("#d9eaf7")
+
+    fig.tight_layout()
+
+    figure_path = os.path.join(base_folder, f"Model Comparison Figure{start_model} to {end_model}.png")
+    fig.savefig(figure_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"\nModel comparison CSV saved to: {csv_path}")
+    print(f"Model comparison figure saved to: {figure_path}")
+
+    return table_rows
 
 ########################################## Main Function with Hyperparameter Settings ##########################################
 
 # This is the main function
 if __name__ == '__main__':
 
-    # TO MARKER: Change this to "test_model" to just run the pre-trained model to test the testing dataset and give evaluation metrics
-    # Otherwise: "train" re-trains the new model
-    RUN_MODE = "train"
+    # TO MARKER: 
+    # 1. Change this to "test_model" to just run the pre-trained model to test the testing dataset and give evaluation metrics
+    #   Otherwise: "train" re-trains the new model. "compare_models" compares model checkpoints 1-9.
+    #
+    # 2. Change MODEL_NUM to whatever number (1-15) to test which model you want to evaluate
+    RUN_MODE = "compare_models"  # Options: "train", "test_model", "compare_models"
+    MODEL_NUM = 1
 
     #### MAIN HYPERPARAMETERS FOR TUNING ####
     #
     # Each model has their own combination of hyperparameters.
     # This specific model is model [X].
-    HyperParam_Channels = [16, 32, 64, 128]
+    HyperParam_Channels = [8, 16, 32, 64]
     HyperParam_LR = 1e-3
-    HyperParam_Epochs = 20
+    HyperParam_Epochs = 50
 
     # Settings for data loading and preprocessing.
     BATCH_SIZE = 128
@@ -604,22 +732,28 @@ if __name__ == '__main__':
 
     # Training settings
     CLIP = 1
-    CHECKPOINT_PATH = "trained_models/Trained_Model.pth"
+    CHECKPOINT_PATH, OUTPUT_FOLDER = GetModelPaths(MODEL_NUM)
 
-    # Load the BloodMNIST dataset for training, validation and testing.
-    # Also loads the number of classes and metadata information
-    DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, input_channel, info = LoadDataBloodMNIST(batch_size=BATCH_SIZE, 
-                                                                                                         download=DOWNLOAD, size=SIZE)
-    if RUN_MODE == "train":
-        # Run the model training segmentation
-        RunTraining(DataTRAIN_Set=DataTRAIN_Set, DataVAL_Set=DataVAL_Set, DataTEST_Set=DataTEST_Set,
-                                class_num=class_num, channel_in=input_channel, info=info, num_channels=HyperParam_Channels, 
-                                learn_rate=HyperParam_LR, epoch_num=HyperParam_Epochs, clip=CLIP, checkpoint_path=CHECKPOINT_PATH)
-
-    elif RUN_MODE == "test_model":
-        # Just run the model testing for a fully trained model with hyperparameters defined in saved model entity
-        RunTesting(checkpoint_path=CHECKPOINT_PATH, DataTEST_Set=DataTEST_Set, class_num=class_num, info=info)
+    if RUN_MODE == "compare_models":
+        # Read saved checkpoints and create a comparison table without retraining or loading data.
+        CompareSavedModels(start_model=1, end_model=9)
 
     else:
-        # Syntaxing error handling
-        raise ValueError('RUN_MODE must be either "train" or "test_model"')
+        # Load the BloodMNIST dataset for training, validation and testing.
+        # Also loads the number of classes and metadata information
+        DataTRAIN_Set, DataVAL_Set, DataTEST_Set, class_num, input_channel, info = LoadDataBloodMNIST(batch_size=BATCH_SIZE, 
+                                                                                                             download=DOWNLOAD, size=SIZE)
+
+        if RUN_MODE == "train":
+            # Run the model training segmentation
+            RunTraining(DataTRAIN_Set=DataTRAIN_Set, DataVAL_Set=DataVAL_Set, DataTEST_Set=DataTEST_Set,
+                                    class_num=class_num, channel_in=input_channel, info=info, num_channels=HyperParam_Channels, 
+                                    learn_rate=HyperParam_LR, epoch_num=HyperParam_Epochs, clip=CLIP, checkpoint_path=CHECKPOINT_PATH, output_folder=OUTPUT_FOLDER)
+
+        elif RUN_MODE == "test_model":
+            # Just run the model testing for a fully trained model with hyperparameters defined in saved model entity
+            RunTesting(checkpoint_path=CHECKPOINT_PATH, DataTEST_Set=DataTEST_Set, class_num=class_num, info=info, output_folder=OUTPUT_FOLDER)
+
+        else:
+            # Syntaxing error handling
+            raise ValueError('RUN_MODE must be either "train", "test_model", or "compare_models"')
